@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -28,6 +29,7 @@ type ProgressState struct {
 }
 
 type ProgressDisplay struct {
+	mu            sync.Mutex
 	out           io.Writer
 	live          bool
 	lastFlush     time.Time
@@ -46,17 +48,21 @@ func (p *ProgressDisplay) Start(state ProgressState) {
 	if p == nil {
 		return
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.state = state
-	p.flush(true)
+	p.flushLocked(true)
 }
 
 func (p *ProgressDisplay) Update(state ProgressState) {
 	if p == nil {
 		return
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.state = state
 	if time.Since(p.lastFlush) >= time.Second {
-		p.flush(false)
+		p.flushLocked(false)
 	}
 }
 
@@ -64,7 +70,9 @@ func (p *ProgressDisplay) Finish() {
 	if p == nil {
 		return
 	}
-	p.clear()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.clearLocked()
 	p.renderedLines = 0
 }
 
@@ -72,30 +80,36 @@ func (p *ProgressDisplay) PrintLine(line string) {
 	if p == nil {
 		return
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	// Completed probe-attempt lines must appear above the live bar, so clear the
 	// old bar first and force the next progress update to redraw from scratch.
-	p.clear()
+	// Keep this serialized with Start/Update/Finish. Those calls come from
+	// ffmpeg reader goroutines, and interleaved ANSI clear/write sequences can
+	// leave stale suffixes such as the tail of a previous CRF label or size.
+	p.clearLocked()
 	p.renderedLines = 0
 	fmt.Fprintln(p.out, line)
 	p.lastFlush = time.Time{}
 }
 
-func (p *ProgressDisplay) flush(force bool) {
+func (p *ProgressDisplay) flushLocked(force bool) {
 	if p == nil || !p.live {
 		return
 	}
 	if !force && time.Since(p.lastFlush) < time.Second {
 		return
 	}
-	line := formatProgressLine(p.state, terminalWidth())
-	p.clear()
+	width := terminalWidth()
+	line := formatProgressLine(p.state, progressLineWidth(width))
+	p.clearLocked()
 	fmt.Fprint(p.out, "\x1b[2K")
 	fmt.Fprintln(p.out, line)
-	p.renderedLines = 1
+	p.renderedLines = terminalRows(line, width)
 	p.lastFlush = time.Now()
 }
 
-func (p *ProgressDisplay) clear() {
+func (p *ProgressDisplay) clearLocked() {
 	if p == nil || p.renderedLines <= 0 {
 		return
 	}
@@ -104,7 +118,7 @@ func (p *ProgressDisplay) clear() {
 	// repeatedly printed and cleared with plain newlines.
 	fmt.Fprintf(p.out, "\x1b[%dF", p.renderedLines)
 	for i := 0; i < p.renderedLines; i++ {
-		fmt.Fprint(p.out, "\x1b[2K")
+		fmt.Fprint(p.out, "\r\x1b[2K")
 		fmt.Fprintln(p.out)
 	}
 	fmt.Fprintf(p.out, "\x1b[%dF", p.renderedLines)
@@ -318,6 +332,32 @@ func terminalWidth() int {
 		}
 	}
 	return 120
+}
+
+func progressLineWidth(width int) int {
+	if width <= 1 {
+		return width
+	}
+	// Avoid writing exactly to the last column. Many terminals set autowrap
+	// after the final cell, so a visually one-line progress render may need two
+	// rows to clear on the next update. Keeping one column spare makes the live
+	// line cleanup deterministic.
+	return width - 1
+}
+
+func terminalRows(line string, width int) int {
+	if width <= 0 {
+		return 1
+	}
+	visible := visibleLen(line)
+	if visible <= 0 {
+		return 1
+	}
+	rows := (visible + width - 1) / width
+	if rows < 1 {
+		return 1
+	}
+	return rows
 }
 
 func terminalWidthFromIoctl() int {

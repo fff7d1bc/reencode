@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -930,6 +931,25 @@ func TestProgressDisplayPrintLineClearsLiveLine(t *testing.T) {
 	}
 	if p.renderedLines != 0 {
 		t.Fatalf("renderedLines = %d, want 0", p.renderedLines)
+	}
+}
+
+func TestProgressDisplayPrintLineClearsWrappedLiveLine(t *testing.T) {
+	var buf bytes.Buffer
+	p := &ProgressDisplay{out: &buf, live: true, renderedLines: 2}
+	p.PrintLine(">>> crf 25  VMAF 96.00")
+	got := buf.String()
+	if !contains(got, "\x1b[2F") {
+		t.Fatalf("wrapped progress should clear two rows: %q", got)
+	}
+}
+
+func TestProgressLineWidthAvoidsTerminalAutowrap(t *testing.T) {
+	if got := progressLineWidth(80); got != 79 {
+		t.Fatalf("progressLineWidth = %d, want 79", got)
+	}
+	if got := terminalRows(strings.Repeat("x", 81), 80); got != 2 {
+		t.Fatalf("terminalRows = %d, want 2", got)
 	}
 }
 
