@@ -75,6 +75,19 @@ func encodeOne(ctx context.Context, opts EncodeOptions, file string) error {
 	if opts.CRFSet {
 		return encodeOneWithCRF(ctx, opts, file, opts.CRF)
 	}
+	// Check cheap/metadata skips before chooseCRF. chooseCRF starts the costly
+	// probe search, so already-AV1 MKV inputs must be rejected before that path.
+	info, err := probeInputMedia(file)
+	if err != nil {
+		skipped, err := handleEncodeInputProbeError(file, err)
+		if skipped {
+			return nil
+		}
+		return err
+	}
+	if skipEncodeInput(file, info, opts) {
+		return nil
+	}
 	crf, err := chooseCRF(ctx, opts, file)
 	if err != nil {
 		return err
@@ -85,18 +98,13 @@ func encodeOne(ctx context.Context, opts EncodeOptions, file string) error {
 func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf float64) error {
 	info, err := probeInputMedia(file)
 	if err != nil {
-		if errors.Is(err, errNotVideoFile) {
-			fmt.Fprintf(os.Stderr, "%s: not a video file, skipping\n", displayPath(file))
-			return nil
-		}
-		if errors.Is(err, errNoVideoStream) {
-			fmt.Fprintf(os.Stderr, "%s: no video stream found, skipping\n", displayPath(file))
+		skipped, err := handleEncodeInputProbeError(file, err)
+		if skipped {
 			return nil
 		}
 		return err
 	}
-	if shouldSkipAlreadyEncoded(info, opts) {
-		fmt.Fprintf(os.Stderr, "%s: already .mkv with AV1 video, skipping\n", displayPath(file))
+	if skipEncodeInput(file, info, opts) {
 		return nil
 	}
 
@@ -253,18 +261,13 @@ func collectGroupInputs(files []string, opts EncodeOptions) ([]groupInput, error
 	for _, file := range files {
 		info, err := probeInputMedia(file)
 		if err != nil {
-			if errors.Is(err, errNotVideoFile) {
-				fmt.Fprintf(os.Stderr, "%s: not a video file, skipping\n", displayPath(file))
-				continue
-			}
-			if errors.Is(err, errNoVideoStream) {
-				fmt.Fprintf(os.Stderr, "%s: no video stream found, skipping\n", displayPath(file))
+			skipped, err := handleEncodeInputProbeError(file, err)
+			if skipped {
 				continue
 			}
 			return nil, err
 		}
-		if shouldSkipAlreadyEncoded(info, opts) {
-			fmt.Fprintf(os.Stderr, "%s: already .mkv with AV1 video, skipping\n", displayPath(file))
+		if skipEncodeInput(file, info, opts) {
 			continue
 		}
 		output := outputPathFor(file)
@@ -324,6 +327,26 @@ func initialGroupCRF(inputs []groupInput) float64 {
 
 func shouldSkipAlreadyEncoded(info MediaInfo, opts EncodeOptions) bool {
 	return info.IsMatroskaAV1Input() && !opts.ForceReencode
+}
+
+func skipEncodeInput(file string, info MediaInfo, opts EncodeOptions) bool {
+	if shouldSkipAlreadyEncoded(info, opts) {
+		fmt.Fprintf(os.Stderr, "%s: already .mkv with AV1 video, skipping\n", displayPath(file))
+		return true
+	}
+	return false
+}
+
+func handleEncodeInputProbeError(file string, err error) (bool, error) {
+	if errors.Is(err, errNotVideoFile) {
+		fmt.Fprintf(os.Stderr, "%s: not a video file, skipping\n", displayPath(file))
+		return true, nil
+	}
+	if errors.Is(err, errNoVideoStream) {
+		fmt.Fprintf(os.Stderr, "%s: no video stream found, skipping\n", displayPath(file))
+		return true, nil
+	}
+	return false, err
 }
 
 func groupQualityOK(attempt ProbeAttempt, opts ProbeOptions) bool {
