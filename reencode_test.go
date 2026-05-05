@@ -559,6 +559,18 @@ func TestMatroskaAV1SkipHonorsForceReencode(t *testing.T) {
 	}
 }
 
+func TestFormatEncodeSuccessLineUsesBasenames(t *testing.T) {
+	line := formatEncodeSuccessLine("/tmp/input/a.mp4", "/tmp/input/a_[e-av1].mkv", 37.25)
+	for _, want := range []string{">>> encoded a.mp4 -> a_[e-av1].mkv", "crf 37.25"} {
+		if !contains(line, want) {
+			t.Fatalf("missing %q in %q", want, line)
+		}
+	}
+	if contains(line, "/tmp/input/") {
+		t.Fatalf("success line should show basenames only: %q", line)
+	}
+}
+
 func TestNoVideoStreamErrorIsTyped(t *testing.T) {
 	err := fmt.Errorf("image.png: %w", errNoVideoStream)
 	if !errors.Is(err, errNoVideoStream) {

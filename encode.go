@@ -176,7 +176,12 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf 
 	if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("encoded output is ready but removing source failed: %w", err)
 	}
+	fmt.Fprintln(os.Stderr, formatEncodeSuccessLine(file, output, crf))
 	return nil
+}
+
+func formatEncodeSuccessLine(input, output string, crf float64) string {
+	return fmt.Sprintf(">>> encoded %s -> %s with crf %s", displayPath(input), displayPath(output), terseFloat(crf))
 }
 
 type groupInput struct {
