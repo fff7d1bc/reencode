@@ -504,6 +504,47 @@ func TestParseEncodeForceReencodeFlag(t *testing.T) {
 	}
 }
 
+func TestParseProbeSkipNameFlag(t *testing.T) {
+	opts, files, err := parseProbeArgs([]string{"--skip-name", "[reencoded]", "--skip-name", "[reencoded-av1]", "a.mkv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0] != "a.mkv" {
+		t.Fatalf("files = %v", files)
+	}
+	want := []string{"[reencoded]", "[reencoded-av1]"}
+	if !stringSlicesEqual(opts.SkipNames, want) {
+		t.Fatalf("skip names = %v, want %v", opts.SkipNames, want)
+	}
+}
+
+func TestParseEncodeSkipNameFlag(t *testing.T) {
+	opts, files, err := parseEncodeArgs([]string{"--skip-name", "[reencoded]", "--skip-name", "[reencoded-av1]", "a.mkv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0] != "a.mkv" {
+		t.Fatalf("files = %v", files)
+	}
+	want := []string{"[reencoded]", "[reencoded-av1]"}
+	if !stringSlicesEqual(opts.ProbeOptions.SkipNames, want) {
+		t.Fatalf("skip names = %v, want %v", opts.ProbeOptions.SkipNames, want)
+	}
+}
+
+func TestSkipNameMatchUsesBasename(t *testing.T) {
+	if pattern, ok := skipNameMatch("/tmp/[reencoded]/movie.mkv", []string{"[reencoded]"}); ok {
+		t.Fatalf("directory match should not skip, got pattern %q", pattern)
+	}
+	pattern, ok := skipNameMatch("/tmp/source/movie [reencoded].mkv", []string{"[reencoded]"})
+	if !ok || pattern != "[reencoded]" {
+		t.Fatalf("basename match = %q, %v", pattern, ok)
+	}
+	if pattern, ok := skipNameMatch("/tmp/source/movie.mkv", []string{""}); ok {
+		t.Fatalf("empty pattern should not skip, got pattern %q", pattern)
+	}
+}
+
 func TestMatroskaAV1SkipHonorsForceReencode(t *testing.T) {
 	info := MediaInfo{Path: "a.mkv", VideoCodec: "av1"}
 	if !info.IsMatroskaAV1Input() {
@@ -1517,6 +1558,18 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func stringSlicesEqual(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func countOccurrences(s, sub string) int {

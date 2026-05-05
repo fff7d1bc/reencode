@@ -35,6 +35,26 @@ func outputPathFor(input string) string {
 	return filepath.Join(dir, base+"_[e-av1].mkv")
 }
 
+func skipNameMatch(path string, patterns []string) (string, bool) {
+	base := displayPath(path)
+	for _, pattern := range patterns {
+		// An empty repeated flag would otherwise match every filename through
+		// strings.Contains. Treat it as inert so shell-expanded variables cannot
+		// accidentally skip an entire batch.
+		if pattern == "" {
+			continue
+		}
+		if strings.Contains(base, pattern) {
+			return pattern, true
+		}
+	}
+	return "", false
+}
+
+func formatSkipNameMessage(path string, pattern string) string {
+	return fmt.Sprintf("%s: name matched --skip-name %q, skipping", displayPath(path), pattern)
+}
+
 func reserveTempPath(dir string, pattern string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err

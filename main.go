@@ -71,6 +71,7 @@ func parseProbeArgs(args []string) (ProbeOptions, []string, error) {
 	fs.BoolVar(&opts.NoOutlierCheck, "no-outlier-check", false, "disable borderline outlier confirmation")
 	fs.BoolVar(&opts.NoCache, "no-cache", false, "disable probe cache")
 	fs.BoolVar(&opts.RefreshCache, "refresh-cache", false, "ignore existing probe cache and write fresh result")
+	fs.Var((*stringListValue)(&opts.SkipNames), "skip-name", "skip files whose basename contains this text; can be repeated")
 	fs.IntVar(&opts.Samples, "samples", 0, "advanced: sample count override")
 	fs.StringVar(&opts.TempDir, "temp-dir", "", "advanced: temporary directory")
 	fs.BoolVar(&opts.KeepTemp, "keep-temp", false, "advanced: keep temporary sample files")
@@ -111,6 +112,7 @@ func parseEncodeArgs(args []string) (EncodeOptions, []string, error) {
 	fs.BoolVar(&opts.ProbeOptions.NoOutlierCheck, "no-outlier-check", false, "disable borderline outlier confirmation")
 	fs.BoolVar(&opts.ProbeOptions.NoCache, "no-cache", false, "disable probe cache")
 	fs.BoolVar(&opts.ProbeOptions.RefreshCache, "refresh-cache", false, "ignore existing probe cache and write fresh result")
+	fs.Var((*stringListValue)(&opts.ProbeOptions.SkipNames), "skip-name", "skip files whose basename contains this text; can be repeated")
 	fs.IntVar(&opts.ProbeOptions.Samples, "samples", 0, "advanced: sample count override")
 	fs.StringVar(&opts.ProbeOptions.TempDir, "temp-dir", "", "advanced: temporary directory")
 	fs.BoolVar(&opts.ProbeOptions.KeepTemp, "keep-temp", false, "advanced: keep temporary sample files")
@@ -149,6 +151,8 @@ type optionalFloatValue struct {
 	value *float64
 	set   *bool
 }
+
+type stringListValue []string
 
 func printHelp(args []string) {
 	if len(args) == 0 {
@@ -212,5 +216,17 @@ func (v *optionalFloatValue) Set(s string) error {
 	// being indistinguishable from the option not being present.
 	*v.value = f
 	*v.set = true
+	return nil
+}
+
+func (v *stringListValue) String() string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprint([]string(*v))
+}
+
+func (v *stringListValue) Set(s string) error {
+	*v = append(*v, s)
 	return nil
 }

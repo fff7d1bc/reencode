@@ -21,6 +21,7 @@ type ProbeOptions struct {
 	NoOutlierCheck    bool
 	NoCache           bool
 	RefreshCache      bool
+	SkipNames         []string
 	Samples           int
 	SampleDuration    time.Duration
 	TempDir           string
@@ -85,6 +86,14 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 	for _, file := range files {
 		if ctx.Err() != nil {
 			return 130
+		}
+		if pattern, ok := skipNameMatch(file, opts.SkipNames); ok {
+			if opts.JSON {
+				_ = enc.Encode(ProbeResult{File: file, TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF, Error: "name matched skip filter, skipped"})
+			} else {
+				fmt.Fprintln(os.Stderr, formatSkipNameMessage(file, pattern))
+			}
+			continue
 		}
 		result, err := ProbeFile(ctx, opts, file)
 		if err != nil {

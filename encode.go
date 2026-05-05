@@ -46,6 +46,10 @@ func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) i
 		if ctx.Err() != nil {
 			return 130
 		}
+		if pattern, ok := skipNameMatch(file, opts.ProbeOptions.SkipNames); ok {
+			fmt.Fprintln(os.Stderr, formatSkipNameMessage(file, pattern))
+			continue
+		}
 		fmt.Fprintf(os.Stderr, ">>> Reencoding (%d of %d) %s ...\n", i+1, len(files), displayPath(file))
 		if err := encodeOne(ctx, opts, file); err != nil {
 			if ctx.Err() != nil {
@@ -259,6 +263,10 @@ func persistProbeSessionCache(ctx context.Context, opts ProbeOptions, cache *pro
 func collectGroupInputs(files []string, opts EncodeOptions) ([]groupInput, error) {
 	var inputs []groupInput
 	for _, file := range files {
+		if pattern, ok := skipNameMatch(file, opts.ProbeOptions.SkipNames); ok {
+			fmt.Fprintln(os.Stderr, formatSkipNameMessage(file, pattern))
+			continue
+		}
 		info, err := probeInputMedia(file)
 		if err != nil {
 			skipped, err := handleEncodeInputProbeError(file, err)

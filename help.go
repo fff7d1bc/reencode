@@ -44,6 +44,8 @@ Options:
       Disable probe cache.
   --refresh-cache
       Ignore existing probe cache and write fresh result.
+  --skip-name text
+      Skip files whose basename contains this text. Can be repeated.
   --samples int
       Advanced: sample count override.
   --sample-duration duration
@@ -101,6 +103,8 @@ Options:
       Disable probe cache.
   --refresh-cache
       Ignore existing probe cache and write fresh result.
+  --skip-name text
+      Skip files whose basename contains this text. Can be repeated.
   --samples int
       Advanced: sample count override.
   --sample-duration duration

@@ -18,6 +18,7 @@ probing and conservative quality guardrails.
 
 - run it over directories or shell globs and leave it alone
 - skip non-video files caught by broad globs such as `path/to/dir/*`
+- skip filenames you opt out with repeated `--skip-name TEXT` filters
 - automatically choose CRF per file instead of hand-tuning each encode
 - use one shared CRF for related files, such as episodes from the same disc
 - reuse cached probe work when a file is probed again
@@ -43,7 +44,8 @@ name_[e-av1].mkv
 Inputs are skipped when built-in content sniffing does not identify them as
 video files. Inputs are also skipped when they are already `.mkv` files whose
 primary video codec is AV1. Use `--force-reencode` to bypass the already-AV1
-skip.
+skip. Use `--skip-name TEXT` to skip inputs whose basename contains a marker
+you choose, such as `[reencoded]`. The option can be repeated.
 
 Useful encode examples:
 
@@ -51,6 +53,7 @@ Useful encode examples:
 reencode encode *.mp4
 reencode encode --group-crf *.mkv
 reencode encode --fallback-crf 32 *.mkv
+reencode encode --skip-name '[reencoded]' --skip-name '[reencoded-av1]' *
 reencode encode --dry-run --crf 28 file.mkv
 ```
 
@@ -130,6 +133,8 @@ Common options:
 - `--overwrite`: allow replacing an existing output file.
 - `--force-reencode`: encode even when the input is already `.mkv` with AV1
   video.
+- `--skip-name TEXT`: skip files whose basename contains this text. Repeat the
+  option for multiple markers.
 - `--dry-run`: print the final ffmpeg command without encoding.
 - `--log-file PATH`: append before/after size records.
 - `--no-progress`: disable the interactive progress display.
@@ -154,6 +159,8 @@ Probe options shared by `probe` and `encode`:
   low sample.
 - `--no-cache`: bypass probe cache.
 - `--refresh-cache`: ignore existing probe cache and write a fresh result.
+- `--skip-name TEXT`: skip files whose basename contains this text. Repeat the
+  option for multiple markers.
 - `--temp-dir PATH`: write probe sample files under this directory.
 - `--keep-temp`: keep encoded probe samples.
 - `--stall-timeout DURATION`: kill ffmpeg if frame progress stalls. Default:
