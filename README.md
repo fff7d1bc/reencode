@@ -47,6 +47,12 @@ primary video codec is AV1. Use `--force-reencode` to bypass the already-AV1
 skip. Use `--skip-name TEXT` to skip inputs whose basename contains a marker
 you choose, such as `[reencoded]`. The option can be repeated.
 
+When more than one input is passed, `reencode` checks eligibility first and
+prints a compact summary before starting probe or encode work. The work counter
+then counts only actionable files, not every path matched by the shell. This
+check runs up to four files in parallel by default. Use `--check-workers N` to
+adjust it.
+
 Useful encode examples:
 
 ```sh
@@ -135,6 +141,7 @@ Common options:
   video.
 - `--skip-name TEXT`: skip files whose basename contains this text. Repeat the
   option for multiple markers.
+- `--check-workers N`: set parallel eligibility check workers. Default: `4`.
 - `--dry-run`: print the final ffmpeg command without encoding.
 - `--log-file PATH`: append before/after size records.
 - `--no-progress`: disable the interactive progress display.
@@ -161,6 +168,7 @@ Probe options shared by `probe` and `encode`:
 - `--refresh-cache`: ignore existing probe cache and write a fresh result.
 - `--skip-name TEXT`: skip files whose basename contains this text. Repeat the
   option for multiple markers.
+- `--check-workers N`: set parallel eligibility check workers. Default: `4`.
 - `--temp-dir PATH`: write probe sample files under this directory.
 - `--keep-temp`: keep encoded probe samples.
 - `--stall-timeout DURATION`: kill ffmpeg if frame progress stalls. Default:

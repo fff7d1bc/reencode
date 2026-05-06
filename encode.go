@@ -33,8 +33,20 @@ func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) i
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 1
 	}
+	printEligibilityStart(files, false)
+	eligibility := collectEligibleInputs(ctx, eligibilityEncode, files, opts)
+	if eligibility.Fatal != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", eligibility.Fatal)
+		return 1
+	}
+	printEligibilitySummary(eligibility, len(files), false)
+	if !shouldSummarizeEligibility(files, false) {
+		for _, skipped := range eligibility.Skipped {
+			printSkippedInput(skipped)
+		}
+	}
 	if opts.GroupCRF {
-		if err := encodeGroup(ctx, opts, files); err != nil {
+		if err := encodeGroup(ctx, opts, eligibility.Actionable); err != nil {
 			fmt.Fprintf(os.Stderr, "group: %v\n", err)
 			return 1
 		}
@@ -42,15 +54,12 @@ func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) i
 	}
 
 	exitCode := 0
-	for i, file := range files {
+	for i, input := range eligibility.Actionable {
 		if ctx.Err() != nil {
 			return 130
 		}
-		if pattern, ok := skipNameMatch(file, opts.ProbeOptions.SkipNames); ok {
-			fmt.Fprintln(os.Stderr, formatSkipNameMessage(file, pattern))
-			continue
-		}
-		fmt.Fprintf(os.Stderr, ">>> Reencoding (%d of %d) %s ...\n", i+1, len(files), displayPath(file))
+		file := input.File
+		fmt.Fprintf(os.Stderr, ">>> Reencoding (%d of %d) %s ...\n", i+1, len(eligibility.Actionable), displayPath(file))
 		if err := encodeOne(ctx, opts, file); err != nil {
 			if ctx.Err() != nil {
 				return 130
@@ -79,19 +88,6 @@ func encodeOne(ctx context.Context, opts EncodeOptions, file string) error {
 	if opts.CRFSet {
 		return encodeOneWithCRF(ctx, opts, file, opts.CRF)
 	}
-	// Check cheap/metadata skips before chooseCRF. chooseCRF starts the costly
-	// probe search, so already-AV1 MKV inputs must be rejected before that path.
-	info, err := probeInputMedia(file)
-	if err != nil {
-		skipped, err := handleEncodeInputProbeError(file, err)
-		if skipped {
-			return nil
-		}
-		return err
-	}
-	if skipEncodeInput(file, info, opts) {
-		return nil
-	}
 	crf, err := chooseCRF(ctx, opts, file)
 	if err != nil {
 		return err
@@ -102,16 +98,8 @@ func encodeOne(ctx context.Context, opts EncodeOptions, file string) error {
 func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf float64) error {
 	info, err := probeInputMedia(file)
 	if err != nil {
-		skipped, err := handleEncodeInputProbeError(file, err)
-		if skipped {
-			return nil
-		}
 		return err
 	}
-	if skipEncodeInput(file, info, opts) {
-		return nil
-	}
-
 	output := outputPathFor(file)
 	if _, err := os.Stat(output); err == nil && !opts.Overwrite {
 		return fmt.Errorf("output already exists: %s", displayPath(output))
@@ -192,11 +180,8 @@ type groupInput struct {
 	Cache   *probeCacheHandle
 }
 
-func encodeGroup(ctx context.Context, opts EncodeOptions, files []string) error {
-	inputs, err := collectGroupInputs(files, opts)
-	if err != nil {
-		return err
-	}
+func encodeGroup(ctx context.Context, opts EncodeOptions, eligible []eligibleInput) error {
+	inputs := groupInputsFromEligible(eligible)
 	if len(inputs) == 0 {
 		fmt.Fprintln(os.Stderr, "group: no eligible files to encode")
 		return nil
@@ -265,31 +250,12 @@ func persistProbeSessionCache(ctx context.Context, opts ProbeOptions, cache *pro
 	}
 }
 
-func collectGroupInputs(files []string, opts EncodeOptions) ([]groupInput, error) {
+func groupInputsFromEligible(eligible []eligibleInput) []groupInput {
 	var inputs []groupInput
-	for _, file := range files {
-		if pattern, ok := skipNameMatch(file, opts.ProbeOptions.SkipNames); ok {
-			fmt.Fprintln(os.Stderr, formatSkipNameMessage(file, pattern))
-			continue
-		}
-		info, err := probeInputMedia(file)
-		if err != nil {
-			skipped, err := handleEncodeInputProbeError(file, err)
-			if skipped {
-				continue
-			}
-			return nil, err
-		}
-		if skipEncodeInput(file, info, opts) {
-			continue
-		}
-		output := outputPathFor(file)
-		if _, err := os.Stat(output); err == nil && !opts.Overwrite {
-			return nil, fmt.Errorf("output already exists: %s", displayPath(output))
-		}
-		inputs = append(inputs, groupInput{File: file, Info: info})
+	for _, input := range eligible {
+		inputs = append(inputs, groupInput{File: input.File, Info: input.Info})
 	}
-	return inputs, nil
+	return inputs
 }
 
 func chooseGroupCRF(ctx context.Context, opts EncodeOptions, inputs []groupInput) (float64, []string, error) {
@@ -340,26 +306,6 @@ func initialGroupCRF(inputs []groupInput) float64 {
 
 func shouldSkipAlreadyEncoded(info MediaInfo, opts EncodeOptions) bool {
 	return info.IsMatroskaAV1Input() && !opts.ForceReencode
-}
-
-func skipEncodeInput(file string, info MediaInfo, opts EncodeOptions) bool {
-	if shouldSkipAlreadyEncoded(info, opts) {
-		fmt.Fprintf(os.Stderr, "%s: already .mkv with AV1 video, skipping\n", displayPath(file))
-		return true
-	}
-	return false
-}
-
-func handleEncodeInputProbeError(file string, err error) (bool, error) {
-	if errors.Is(err, errNotVideoFile) {
-		fmt.Fprintf(os.Stderr, "%s: not a video file, skipping\n", displayPath(file))
-		return true, nil
-	}
-	if errors.Is(err, errNoVideoStream) {
-		fmt.Fprintf(os.Stderr, "%s: no video stream found, skipping\n", displayPath(file))
-		return true, nil
-	}
-	return false, err
 }
 
 func groupQualityOK(attempt ProbeAttempt, opts ProbeOptions) bool {

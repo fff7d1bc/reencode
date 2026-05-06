@@ -15,6 +15,7 @@ func defaultProbeOptions() ProbeOptions {
 		TargetVMAF:        defaultTargetVMAF,
 		FloorVMAF:         defaultFloorVMAF,
 		MaxEncodedPercent: defaultMaxEncodedPercent,
+		CheckWorkers:      4,
 		SampleDuration:    20 * time.Second,
 		StallTimeout:      10 * time.Minute,
 	}

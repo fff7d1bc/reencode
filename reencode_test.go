@@ -313,6 +313,7 @@ func TestProbeCacheOptionsIgnoreNonAffectingFields(t *testing.T) {
 	a.NoProgress = true
 	a.Verbose = true
 	a.StallTimeout = time.Second
+	a.CheckWorkers = 1
 	b := defaultProbeOptions()
 	b.JSON = false
 	b.TempDir = "/tmp/b"
@@ -320,6 +321,7 @@ func TestProbeCacheOptionsIgnoreNonAffectingFields(t *testing.T) {
 	b.NoProgress = false
 	b.Verbose = false
 	b.StallTimeout = time.Hour
+	b.CheckWorkers = 8
 	if normalizedProbeCacheOptions(a) != normalizedProbeCacheOptions(b) {
 		t.Fatalf("non-affecting fields changed cache options")
 	}
@@ -533,6 +535,32 @@ func TestParseEncodeSkipNameFlag(t *testing.T) {
 	}
 }
 
+func TestParseCheckWorkersFlag(t *testing.T) {
+	probeOpts, _, err := parseProbeArgs([]string{"--check-workers", "8", "a.mkv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probeOpts.CheckWorkers != 8 {
+		t.Fatalf("probe check workers = %d, want 8", probeOpts.CheckWorkers)
+	}
+	encodeOpts, _, err := parseEncodeArgs([]string{"--check-workers", "6", "a.mkv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encodeOpts.ProbeOptions.CheckWorkers != 6 {
+		t.Fatalf("encode check workers = %d, want 6", encodeOpts.ProbeOptions.CheckWorkers)
+	}
+}
+
+func TestParseCheckWorkersRejectsZero(t *testing.T) {
+	if _, _, err := parseProbeArgs([]string{"--check-workers", "0", "a.mkv"}); err == nil {
+		t.Fatalf("probe accepted zero check workers")
+	}
+	if _, _, err := parseEncodeArgs([]string{"--check-workers", "0", "a.mkv"}); err == nil {
+		t.Fatalf("encode accepted zero check workers")
+	}
+}
+
 func TestSkipNameMatchUsesBasename(t *testing.T) {
 	if pattern, ok := skipNameMatch("/tmp/[reencoded]/movie.mkv", []string{"[reencoded]"}); ok {
 		t.Fatalf("directory match should not skip, got pattern %q", pattern)
@@ -556,6 +584,174 @@ func TestMatroskaAV1SkipHonorsForceReencode(t *testing.T) {
 	}
 	if shouldSkipAlreadyEncoded(info, EncodeOptions{ForceReencode: true}) {
 		t.Fatalf("force reencode should bypass matroska av1 skip")
+	}
+}
+
+func TestCollectEligibleInputsSkipsNameBeforeStat(t *testing.T) {
+	opts := EncodeOptions{ProbeOptions: defaultProbeOptions()}
+	opts.ProbeOptions.SkipNames = []string{"[done]"}
+	result := collectEligibleInputs(context.Background(), eligibilityEncode, []string{"/missing/movie [done].mkv"}, opts)
+	if result.Fatal != nil {
+		t.Fatal(result.Fatal)
+	}
+	if len(result.Actionable) != 0 || len(result.Skipped) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.Skipped[0].Reason != eligibilitySkipName || result.Skipped[0].Pattern != "[done]" {
+		t.Fatalf("skip = %+v", result.Skipped[0])
+	}
+}
+
+func TestCollectEligibleInputsSkipsNonVideo(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "image.png")
+	if err := os.WriteFile(path, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := collectEligibleInputs(context.Background(), eligibilityProbe, []string{path}, EncodeOptions{ProbeOptions: defaultProbeOptions()})
+	if result.Fatal != nil {
+		t.Fatal(result.Fatal)
+	}
+	if len(result.Actionable) != 0 || len(result.Skipped) != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.Skipped[0].Reason != eligibilitySkipNotVideo {
+		t.Fatalf("skip = %+v", result.Skipped[0])
+	}
+}
+
+func TestClassifyEncodeMediaAlreadyAV1HonorsForceReencode(t *testing.T) {
+	info := MediaInfo{Path: "a.mkv", VideoCodec: "av1"}
+	skip, ok, err := classifyEncodeMedia("a.mkv", info, EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || skip.Reason != eligibilitySkipAlreadyAV1 {
+		t.Fatalf("skip = %+v ok=%v", skip, ok)
+	}
+	_, ok, err = classifyEncodeMedia("a.mkv", info, EncodeOptions{ForceReencode: true, Overwrite: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatalf("force reencode should not skip")
+	}
+}
+
+func TestClassifyEncodeMediaOutputExistsIsFatalUnlessOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "movie.mp4")
+	output := outputPathFor(input)
+	if err := os.WriteFile(output, []byte("exists"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, ok, err := classifyEncodeMedia(input, MediaInfo{Path: input, VideoCodec: "h264"}, EncodeOptions{})
+	if err == nil || ok {
+		t.Fatalf("err=%v ok=%v, want output-exists error", err, ok)
+	}
+	if !contains(err.Error(), "movie_[e-av1].mkv") || contains(err.Error(), dir) {
+		t.Fatalf("output error should use basename: %v", err)
+	}
+	_, ok, err = classifyEncodeMedia(input, MediaInfo{Path: input, VideoCodec: "h264"}, EncodeOptions{Overwrite: true})
+	if err != nil || ok {
+		t.Fatalf("overwrite err=%v ok=%v, want actionable", err, ok)
+	}
+}
+
+func TestFormatEligibilitySkipCounts(t *testing.T) {
+	got := formatEligibilitySkipCounts([]skippedInput{
+		{Reason: eligibilitySkipName},
+		{Reason: eligibilitySkipNotVideo},
+		{Reason: eligibilitySkipAlreadyAV1},
+		{Reason: eligibilitySkipNotVideo},
+	})
+	want := "2 not video, 1 already AV1, 1 name filter"
+	if got != want {
+		t.Fatalf("counts = %q, want %q", got, want)
+	}
+}
+
+func TestShouldSummarizeEligibility(t *testing.T) {
+	if shouldSummarizeEligibility([]string{"a.mkv"}, false) {
+		t.Fatalf("single input should not summarize")
+	}
+	if shouldSummarizeEligibility([]string{"a.mkv", "b.mkv"}, true) {
+		t.Fatalf("json mode should not summarize")
+	}
+	if !shouldSummarizeEligibility([]string{"a.mkv", "b.mkv"}, false) {
+		t.Fatalf("multi-input non-json should summarize")
+	}
+}
+
+func TestProbeSkippedResultMessages(t *testing.T) {
+	opts := defaultProbeOptions()
+	result := probeSkippedResult(skippedInput{File: "a.mkv", Reason: eligibilitySkipName}, opts)
+	if result.Error != "name matched skip filter, skipped" || result.TargetVMAF != opts.TargetVMAF || result.FloorVMAF != opts.FloorVMAF {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestEligibilityWorkerCountClamps(t *testing.T) {
+	tests := []struct {
+		files     int
+		requested int
+		want      int
+	}{
+		{files: 1, requested: 4, want: 1},
+		{files: 3, requested: 4, want: 3},
+		{files: 9, requested: 4, want: 4},
+		{files: 9, requested: 0, want: 1},
+	}
+	for _, tt := range tests {
+		got := eligibilityWorkerCount(tt.files, tt.requested)
+		if got != tt.want {
+			t.Fatalf("eligibilityWorkerCount(%d, %d) = %d, want %d", tt.files, tt.requested, got, tt.want)
+		}
+	}
+}
+
+func TestCollectEligibleInputsWithClassifierPreservesOrder(t *testing.T) {
+	opts := EncodeOptions{ProbeOptions: defaultProbeOptions()}
+	opts.ProbeOptions.CheckWorkers = 4
+	result := collectEligibleInputsWithClassifier(context.Background(), eligibilityProbe, []string{"a.mkv", "skip.mkv", "b.mkv"}, opts,
+		func(ctx context.Context, mode eligibilityMode, file string, opts EncodeOptions) eligibilityEntry {
+			if file == "skip.mkv" {
+				return eligibilityEntry{File: file, Skipped: true, SkipReason: eligibilitySkipName, Pattern: "skip"}
+			}
+			return eligibilityEntry{File: file, Info: MediaInfo{Path: file, VideoCodec: "h264"}}
+		})
+	if result.Fatal != nil {
+		t.Fatal(result.Fatal)
+	}
+	if len(result.Entries) != 3 || result.Entries[0].File != "a.mkv" || result.Entries[1].File != "skip.mkv" || result.Entries[2].File != "b.mkv" {
+		t.Fatalf("entries out of order: %+v", result.Entries)
+	}
+	if len(result.Actionable) != 2 || result.Actionable[0].File != "a.mkv" || result.Actionable[1].File != "b.mkv" {
+		t.Fatalf("actionable out of order: %+v", result.Actionable)
+	}
+	if len(result.Skipped) != 1 || result.Skipped[0].File != "skip.mkv" {
+		t.Fatalf("skips out of order: %+v", result.Skipped)
+	}
+}
+
+func TestCollectEligibleInputsWithClassifierUsesFirstFatalByInputOrder(t *testing.T) {
+	opts := EncodeOptions{ProbeOptions: defaultProbeOptions()}
+	opts.ProbeOptions.CheckWorkers = 4
+	errA := errors.New("fatal a")
+	errB := errors.New("fatal b")
+	result := collectEligibleInputsWithClassifier(context.Background(), eligibilityProbe, []string{"ok.mkv", "a.mkv", "b.mkv"}, opts,
+		func(ctx context.Context, mode eligibilityMode, file string, opts EncodeOptions) eligibilityEntry {
+			switch file {
+			case "a.mkv":
+				return eligibilityEntry{File: file, Fatal: errA}
+			case "b.mkv":
+				return eligibilityEntry{File: file, Fatal: errB}
+			default:
+				return eligibilityEntry{File: file, Info: MediaInfo{Path: file, VideoCodec: "h264"}}
+			}
+		})
+	if !errors.Is(result.Fatal, errA) {
+		t.Fatalf("fatal = %v, want %v", result.Fatal, errA)
 	}
 }
 

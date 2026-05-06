@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,6 +47,10 @@ func (m MediaInfo) IsMatroskaAV1Input() bool {
 }
 
 func probeInputMedia(path string) (MediaInfo, error) {
+	return probeInputMediaContext(context.Background(), path)
+}
+
+func probeInputMediaContext(ctx context.Context, path string) (MediaInfo, error) {
 	ok, err := candidateVideoByContent(path)
 	if err != nil {
 		return MediaInfo{}, err
@@ -53,7 +58,10 @@ func probeInputMedia(path string) (MediaInfo, error) {
 	if !ok {
 		return MediaInfo{Path: path, VideoIndex: -1}, fmt.Errorf("%s: %w", displayPath(path), errNotVideoFile)
 	}
-	return probeMedia(path)
+	// Eligibility checks can run several ffprobe processes in parallel. Thread
+	// the command context through this path so Ctrl-C can stop the check phase
+	// instead of waiting for every queued input to finish.
+	return probeMediaContext(ctx, path)
 }
 
 func candidateVideoByContent(path string) (bool, error) {
@@ -82,7 +90,11 @@ func candidateVideoByContent(path string) (bool, error) {
 }
 
 func probeMedia(path string) (MediaInfo, error) {
-	cmd := exec.Command("ffprobe",
+	return probeMediaContext(context.Background(), path)
+}
+
+func probeMediaContext(ctx context.Context, path string) (MediaInfo, error) {
+	cmd := exec.CommandContext(ctx, "ffprobe",
 		"-v", "error",
 		"-print_format", "json",
 		"-show_format",
@@ -91,6 +103,9 @@ func probeMedia(path string) (MediaInfo, error) {
 	)
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return MediaInfo{}, fmt.Errorf("ffprobe %s: %w", displayPath(path), ctx.Err())
+		}
 		if ee, ok := err.(*exec.ExitError); ok {
 			return MediaInfo{}, fmt.Errorf("ffprobe %s: %w: %s", displayPath(path), err, strings.TrimSpace(string(ee.Stderr)))
 		}

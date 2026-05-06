@@ -22,6 +22,7 @@ type ProbeOptions struct {
 	NoCache           bool
 	RefreshCache      bool
 	SkipNames         []string
+	CheckWorkers      int
 	Samples           int
 	SampleDuration    time.Duration
 	TempDir           string
@@ -81,20 +82,31 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 1
 	}
+	printEligibilityStart(files, opts.JSON)
+	eligibility := collectEligibleInputs(ctx, eligibilityProbe, files, EncodeOptions{ProbeOptions: opts})
+	if eligibility.Fatal != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", eligibility.Fatal)
+		return 1
+	}
+	printEligibilitySummary(eligibility, len(files), opts.JSON)
 	exitCode := 0
 	enc := json.NewEncoder(os.Stdout)
-	for _, file := range files {
+	if !opts.JSON && !shouldSummarizeEligibility(files, opts.JSON) {
+		for _, skipped := range eligibility.Skipped {
+			printSkippedInput(skipped)
+		}
+	}
+	for _, entry := range eligibility.Entries {
 		if ctx.Err() != nil {
 			return 130
 		}
-		if pattern, ok := skipNameMatch(file, opts.SkipNames); ok {
+		if entry.Skipped {
 			if opts.JSON {
-				_ = enc.Encode(ProbeResult{File: file, TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF, Error: "name matched skip filter, skipped"})
-			} else {
-				fmt.Fprintln(os.Stderr, formatSkipNameMessage(file, pattern))
+				_ = enc.Encode(probeSkippedResult(skippedInput{File: entry.File, Reason: entry.SkipReason, Pattern: entry.Pattern}, opts))
 			}
 			continue
 		}
+		file := entry.File
 		result, err := ProbeFile(ctx, opts, file)
 		if err != nil {
 			if ctx.Err() != nil {

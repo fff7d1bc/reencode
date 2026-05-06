@@ -72,6 +72,7 @@ func parseProbeArgs(args []string) (ProbeOptions, []string, error) {
 	fs.BoolVar(&opts.NoCache, "no-cache", false, "disable probe cache")
 	fs.BoolVar(&opts.RefreshCache, "refresh-cache", false, "ignore existing probe cache and write fresh result")
 	fs.Var((*stringListValue)(&opts.SkipNames), "skip-name", "skip files whose basename contains this text; can be repeated")
+	fs.IntVar(&opts.CheckWorkers, "check-workers", opts.CheckWorkers, "parallel eligibility check workers")
 	fs.IntVar(&opts.Samples, "samples", 0, "advanced: sample count override")
 	fs.StringVar(&opts.TempDir, "temp-dir", "", "advanced: temporary directory")
 	fs.BoolVar(&opts.KeepTemp, "keep-temp", false, "advanced: keep temporary sample files")
@@ -83,6 +84,9 @@ func parseProbeArgs(args []string) (ProbeOptions, []string, error) {
 	fs.Var(&stallTimeout, "stall-timeout", "ffmpeg stall timeout")
 	if err := fs.Parse(args); err != nil {
 		return ProbeOptions{}, nil, err
+	}
+	if opts.CheckWorkers < 1 {
+		return ProbeOptions{}, nil, fmt.Errorf("--check-workers must be at least 1")
 	}
 	opts.SampleDuration = sampleDuration.value
 	opts.StallTimeout = stallTimeout.value
@@ -113,6 +117,7 @@ func parseEncodeArgs(args []string) (EncodeOptions, []string, error) {
 	fs.BoolVar(&opts.ProbeOptions.NoCache, "no-cache", false, "disable probe cache")
 	fs.BoolVar(&opts.ProbeOptions.RefreshCache, "refresh-cache", false, "ignore existing probe cache and write fresh result")
 	fs.Var((*stringListValue)(&opts.ProbeOptions.SkipNames), "skip-name", "skip files whose basename contains this text; can be repeated")
+	fs.IntVar(&opts.ProbeOptions.CheckWorkers, "check-workers", probeOpts.CheckWorkers, "parallel eligibility check workers")
 	fs.IntVar(&opts.ProbeOptions.Samples, "samples", 0, "advanced: sample count override")
 	fs.StringVar(&opts.ProbeOptions.TempDir, "temp-dir", "", "advanced: temporary directory")
 	fs.BoolVar(&opts.ProbeOptions.KeepTemp, "keep-temp", false, "advanced: keep temporary sample files")
@@ -132,6 +137,9 @@ func parseEncodeArgs(args []string) (EncodeOptions, []string, error) {
 	fs.Var(&stallTimeout, "stall-timeout", "ffmpeg stall timeout")
 	if err := fs.Parse(args); err != nil {
 		return EncodeOptions{}, nil, err
+	}
+	if opts.ProbeOptions.CheckWorkers < 1 {
+		return EncodeOptions{}, nil, fmt.Errorf("--check-workers must be at least 1")
 	}
 	opts.ProbeOptions.SampleDuration = sampleDuration.value
 	opts.ProbeOptions.StallTimeout = stallTimeout.value

@@ -46,6 +46,8 @@ Options:
       Ignore existing probe cache and write fresh result.
   --skip-name text
       Skip files whose basename contains this text. Can be repeated.
+  --check-workers int
+      Parallel eligibility check workers. Default: 4.
   --samples int
       Advanced: sample count override.
   --sample-duration duration
@@ -105,6 +107,8 @@ Options:
       Ignore existing probe cache and write fresh result.
   --skip-name text
       Skip files whose basename contains this text. Can be repeated.
+  --check-workers int
+      Parallel eligibility check workers. Default: 4.
   --samples int
       Advanced: sample count override.
   --sample-duration duration
