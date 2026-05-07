@@ -1306,6 +1306,61 @@ func TestPrintOutlierAcceptedProgress(t *testing.T) {
 	}
 }
 
+func TestReportAttemptPrintsOncePerCRF(t *testing.T) {
+	var buf bytes.Buffer
+	search := crfSearch{options: ProbeOptions{Progress: &ProgressDisplay{out: &buf}}}
+	attempt := ProbeAttempt{CRF: 12.75, Score: 95.39, WorstSampleScore: 93.69, EncodedPercent: 31, PredictedSize: 2764, OutlierAccepted: true, OutlierScore: 93.69}
+	search.reportAttempt(qFromCRF(attempt.CRF), attempt)
+	search.reportAttempt(qFromCRF(attempt.CRF), attempt)
+	text := buf.String()
+	if countOccurrences(text, ">>> crf 12.75") != 1 {
+		t.Fatalf("attempt should print once:\n%s", text)
+	}
+}
+
+func TestEvaluateReportsCachedAttempt(t *testing.T) {
+	var buf bytes.Buffer
+	q := qFromCRF(12.75)
+	attempt := ProbeAttempt{CRF: 12.75, Score: 95.39, WorstSampleScore: 93.69, EncodedPercent: 31, PredictedSize: 2764}
+	search := crfSearch{
+		options:  ProbeOptions{Progress: &ProgressDisplay{out: &buf}},
+		attempts: map[int]ProbeAttempt{q: attempt},
+	}
+	got, err := search.evaluate(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CRF != attempt.CRF {
+		t.Fatalf("attempt = %+v, want %+v", got, attempt)
+	}
+	text := buf.String()
+	if !contains(text, ">>> crf 12.75") {
+		t.Fatalf("cached attempt was not printed:\n%s", text)
+	}
+}
+
+func TestRunReportsSelectedAttemptBeforeSelectedLine(t *testing.T) {
+	var buf bytes.Buffer
+	attempt := ProbeAttempt{CRF: 12.75, Score: 95.39, WorstSampleScore: 93.69, EncodedPercent: 31, PredictedSize: 2764, OutlierAccepted: true, OutlierScore: 93.69}
+	search := crfSearch{
+		options: ProbeOptions{Progress: &ProgressDisplay{out: &buf}},
+	}
+	search.reportSelectedAttempt(attempt)
+	text := buf.String()
+	attemptPos := strings.Index(text, ">>> crf 12.75")
+	selectedPos := strings.Index(text, ">>> selected crf 12.75")
+	if attemptPos < 0 || selectedPos < 0 || attemptPos > selectedPos {
+		t.Fatalf("attempt should be printed before selected line:\n%s", text)
+	}
+}
+
+func TestOutlierProgressScopeLabelsConfirmation(t *testing.T) {
+	progress := outlierProgressScope(13, 1, 4)
+	if progress.Label != "confirm local sample crf 13" {
+		t.Fatalf("label = %q", progress.Label)
+	}
+}
+
 func TestProbeAttemptOutlierJSON(t *testing.T) {
 	data, err := json.Marshal(ProbeAttempt{
 		CRF:                   24.5,

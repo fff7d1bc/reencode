@@ -252,6 +252,7 @@ func newProbeSession(opts ProbeOptions, info MediaInfo) (*probeSession, error) {
 		options:                    opts,
 		encodedSamplePaths:         []string{},
 		attempts:                   map[int]ProbeAttempt{},
+		reportedAttempts:           map[int]bool{},
 		reportedOutlierAcceptances: map[int]bool{},
 	}
 	return &probeSession{result: result, search: search}, nil
@@ -295,12 +296,7 @@ func (s *probeSession) Run(ctx context.Context) (ProbeResult, error) {
 	if err != nil {
 		return s.result, err
 	}
-	if s.search.options.Progress != nil {
-		s.search.options.Progress.PrintLine(formatSelectedProbeAttemptLine(best))
-		if best.OutlierAccepted {
-			s.search.printOutlierAcceptedProgress(qFromCRF(best.CRF), best)
-		}
-	}
+	s.search.reportSelectedAttempt(best)
 	s.result.Success = true
 	s.result.CRF = best.CRF
 	s.result.EffectiveTarget = effectiveTarget
@@ -343,6 +339,7 @@ type crfSearch struct {
 	samples                    []SampleFile
 	options                    ProbeOptions
 	attempts                   map[int]ProbeAttempt
+	reportedAttempts           map[int]bool
 	reportedOutlierAcceptances map[int]bool
 	encodedSamplePaths         []string
 }
@@ -506,6 +503,7 @@ func (s *crfSearch) qualityOK(attempt ProbeAttempt, target float64) bool {
 
 func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 	if attempt, ok := s.attempts[q]; ok {
+		s.reportAttempt(q, attempt)
 		return attempt, nil
 	}
 	crf := crfFromQ(q)
@@ -560,10 +558,37 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 		sampleScores:     sampleScores,
 	}
 	s.attempts[q] = attempt
-	if s.options.Progress != nil {
-		s.options.Progress.PrintLine(formatProbeAttemptLine(attempt))
-	}
+	s.reportAttempt(q, attempt)
 	return attempt, nil
+}
+
+func (s *crfSearch) reportAttempt(q int, attempt ProbeAttempt) {
+	if s.options.Progress == nil {
+		return
+	}
+	if s.reportedAttempts == nil {
+		s.reportedAttempts = map[int]bool{}
+	}
+	if s.reportedAttempts[q] {
+		return
+	}
+	// Cached attempts, retries at a lower effective target, and final
+	// selection can all reuse a CRF without re-encoding it. Report each CRF once
+	// so the selected line is never the first visible result for that CRF.
+	s.options.Progress.PrintLine(formatProbeAttemptLine(attempt))
+	s.reportedAttempts[q] = true
+}
+
+func (s *crfSearch) reportSelectedAttempt(attempt ProbeAttempt) {
+	if s.options.Progress == nil {
+		return
+	}
+	q := qFromCRF(attempt.CRF)
+	s.reportAttempt(q, attempt)
+	s.options.Progress.PrintLine(formatSelectedProbeAttemptLine(attempt))
+	if attempt.OutlierAccepted {
+		s.printOutlierAcceptedProgress(q, attempt)
+	}
 }
 
 func formatProbeAttemptLine(attempt ProbeAttempt) string {
@@ -606,6 +631,14 @@ func probeProgressScope(crf float64, done, total int) probeProgress {
 	}
 }
 
+func outlierProgressScope(crf float64, done, total int) probeProgress {
+	return probeProgress{
+		Label: "confirm local sample crf " + terseFloat(crf),
+		Done:  done,
+		Total: total,
+	}
+}
+
 func (s *crfSearch) maybeConfirmOutlier(ctx context.Context, q int, target float64, attempt ProbeAttempt) (ProbeAttempt, error) {
 	if s.options.NoOutlierCheck || attempt.OutlierChecked || attempt.WorstSampleScore >= s.options.FloorVMAF || attempt.Score < target {
 		return attempt, nil
@@ -625,11 +658,11 @@ func (s *crfSearch) maybeConfirmOutlier(ctx context.Context, q int, target float
 	attempt.OutlierScore = attempt.sampleScores[idx]
 	video := buildVideoArgs(s.info, s.options.Preset, attempt.CRF)
 	for i, sample := range neighbors {
-		encoded, _, err := s.encodeSample(ctx, video, sample, len(s.samples)+i+1, probeProgressScope(attempt.CRF, i*2, len(neighbors)*2))
+		encoded, _, err := s.encodeSample(ctx, video, sample, len(s.samples)+i+1, outlierProgressScope(attempt.CRF, i*2, len(neighbors)*2))
 		if err != nil {
 			return attempt, err
 		}
-		score, err := s.scoreSample(ctx, sample, encoded, probeProgressScope(attempt.CRF, i*2+1, len(neighbors)*2))
+		score, err := s.scoreSample(ctx, sample, encoded, outlierProgressScope(attempt.CRF, i*2+1, len(neighbors)*2))
 		if !s.options.KeepTemp {
 			_ = os.Remove(encoded)
 		}
