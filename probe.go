@@ -254,6 +254,7 @@ func newProbeSession(opts ProbeOptions, info MediaInfo) (*probeSession, error) {
 		attempts:                   map[int]ProbeAttempt{},
 		reportedAttempts:           map[int]bool{},
 		reportedOutlierAcceptances: map[int]bool{},
+		reportedTargetStops:        map[int]bool{},
 	}
 	return &probeSession{result: result, search: search}, nil
 }
@@ -341,6 +342,7 @@ type crfSearch struct {
 	attempts                   map[int]ProbeAttempt
 	reportedAttempts           map[int]bool
 	reportedOutlierAcceptances map[int]bool
+	reportedTargetStops        map[int]bool
 	encodedSamplePaths         []string
 }
 
@@ -404,6 +406,10 @@ func (s *crfSearch) findForTarget(ctx context.Context, target float64) (ProbeAtt
 			// upward for the highest still-acceptable CRF.
 			low = q + 1
 			continue
+		}
+		if !passScore && !passSize {
+			s.reportTargetStop(target, attempt)
+			return best, found, nil
 		}
 		if !passScore {
 			// A quality miss means this CRF is too weak, so search downward.
@@ -591,6 +597,21 @@ func (s *crfSearch) reportSelectedAttempt(attempt ProbeAttempt) {
 	}
 }
 
+func (s *crfSearch) reportTargetStop(target float64, attempt ProbeAttempt) {
+	if s.options.Progress == nil {
+		return
+	}
+	q := qFromCRF(attempt.CRF)
+	if s.reportedTargetStops == nil {
+		s.reportedTargetStops = map[int]bool{}
+	}
+	if s.reportedTargetStops[q] {
+		return
+	}
+	s.options.Progress.PrintLine(formatTargetStopLine(target, attempt, s.options.MaxEncodedPercent))
+	s.reportedTargetStops[q] = true
+}
+
 func formatProbeAttemptLine(attempt ProbeAttempt) string {
 	return formatProbeAttemptLineWithPrefix(">>>", attempt)
 }
@@ -613,6 +634,16 @@ func formatProbeAttemptLineWithPrefix(prefix string, attempt ProbeAttempt) strin
 
 func formatOutlierAcceptedLine(attempt ProbeAttempt) string {
 	return fmt.Sprintf(">>> accepted one local low sample %.2f: nearby windows passed the VMAF floor", attempt.OutlierScore)
+}
+
+func formatTargetStopLine(target float64, attempt ProbeAttempt, maxEncodedPercent float64) string {
+	return fmt.Sprintf(">>> stopping CRF search at crf %s: VMAF %.2f is below target %.2f and size %.0f%% is over max %.0f%%, lower CRFs would be larger",
+		terseFloat(attempt.CRF),
+		attempt.Score,
+		target,
+		attempt.EncodedPercent,
+		maxEncodedPercent,
+	)
 }
 
 type probeProgress struct {

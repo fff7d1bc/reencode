@@ -1291,6 +1291,91 @@ func TestFormatOutlierAcceptedLine(t *testing.T) {
 	}
 }
 
+func TestFormatTargetStopLine(t *testing.T) {
+	line := formatTargetStopLine(95, ProbeAttempt{CRF: 12.75, Score: 79.31, EncodedPercent: 95}, 90)
+	for _, want := range []string{"stopping CRF search", "crf 12.75", "VMAF 79.31 is below target 95.00", "size 95% is over max 90%", "lower CRFs would be larger"} {
+		if !contains(line, want) {
+			t.Fatalf("missing %q in %q", want, line)
+		}
+	}
+}
+
+func TestFindForTargetStopsWhenQualityMissIsOversize(t *testing.T) {
+	var buf bytes.Buffer
+	opts := defaultProbeOptions()
+	opts.TargetVMAF = 95
+	opts.FloorVMAF = 94
+	opts.MaxEncodedPercent = 90
+	opts.Progress = &ProgressDisplay{out: &buf}
+	search := crfSearch{
+		options: opts,
+		attempts: map[int]ProbeAttempt{
+			qFromCRF(37.5): {CRF: 37.5, Score: 78.2, WorstSampleScore: 3.39, EncodedPercent: 95},
+		},
+	}
+	_, ok, err := search.findForTarget(context.Background(), 95)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatalf("oversize quality miss should fail target")
+	}
+	text := buf.String()
+	if !contains(text, "stopping CRF search") {
+		t.Fatalf("missing stop line:\n%s", text)
+	}
+}
+
+func TestFindReportsOversizeQualityStopOnceAcrossTargets(t *testing.T) {
+	var buf bytes.Buffer
+	opts := defaultProbeOptions()
+	opts.TargetVMAF = 95
+	opts.FloorVMAF = 94
+	opts.MaxEncodedPercent = 90
+	opts.Progress = &ProgressDisplay{out: &buf}
+	search := crfSearch{
+		options: opts,
+		attempts: map[int]ProbeAttempt{
+			qFromCRF(37.5):  {CRF: 37.5, Score: 45.61, WorstSampleScore: 3.51, EncodedPercent: 17},
+			qFromCRF(21):    {CRF: 21, Score: 46.01, WorstSampleScore: 3.54, EncodedPercent: 54},
+			qFromCRF(12.75): {CRF: 12.75, Score: 46.09, WorstSampleScore: 3.51, EncodedPercent: 99},
+		},
+	}
+	_, _, err := search.find(context.Background())
+	if err == nil {
+		t.Fatal("expected search failure")
+	}
+	text := buf.String()
+	if got := strings.Count(text, "stopping CRF search"); got != 1 {
+		t.Fatalf("stop line count = %d, want 1:\n%s", got, text)
+	}
+}
+
+func TestFindForTargetKeepsBestWhenLaterAttemptMissesQualityAndSize(t *testing.T) {
+	var buf bytes.Buffer
+	opts := defaultProbeOptions()
+	opts.TargetVMAF = 95
+	opts.FloorVMAF = 94
+	opts.MaxEncodedPercent = 90
+	opts.Progress = &ProgressDisplay{out: &buf}
+	best := ProbeAttempt{CRF: 37.5, Score: 95.2, WorstSampleScore: 94.5, EncodedPercent: 50}
+	search := crfSearch{
+		options: opts,
+		attempts: map[int]ProbeAttempt{
+			qFromCRF(37.5):  {CRF: 37.5, Score: 90, WorstSampleScore: 88, EncodedPercent: 50},
+			qFromCRF(21):    best,
+			qFromCRF(29.25): {CRF: 29.25, Score: 90, WorstSampleScore: 88, EncodedPercent: 120},
+		},
+	}
+	got, ok, err := search.findForTarget(context.Background(), 95)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || got.CRF != best.CRF {
+		t.Fatalf("got %+v ok=%v, want best %+v", got, ok, best)
+	}
+}
+
 func TestPrintOutlierAcceptedProgress(t *testing.T) {
 	var buf bytes.Buffer
 	progress := &ProgressDisplay{out: &buf}
