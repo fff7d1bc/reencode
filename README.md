@@ -35,6 +35,11 @@ For each eligible input, `reencode` probes quality, selects a CRF, encodes
 directly from the original file to an MKV output, validates the result, and then
 removes the source.
 
+Final encode keeps source stream order and copies non-video streams by default.
+FLAC audio streams are converted to Opus at `256000` bps to save space while
+other audio codecs are copied. Use `--no-audio-transcode` to copy all audio
+streams unchanged.
+
 Outputs are written next to the input:
 
 ```text
@@ -139,6 +144,8 @@ Common options:
 - `--overwrite`: allow replacing an existing output file.
 - `--force-reencode`: encode even when the input is already `.mkv` with AV1
   video.
+- `--no-audio-transcode`: copy all audio streams without converting FLAC to
+  Opus.
 - `--skip-name TEXT`: skip files whose basename contains this text. Repeat the
   option for multiple markers.
 - `--check-workers N`: set parallel eligibility check workers. Default: `4`.

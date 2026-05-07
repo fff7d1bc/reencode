@@ -150,7 +150,7 @@ func probeMediaContext(ctx context.Context, path string) (MediaInfo, error) {
 			CodecName: s.CodecName,
 		})
 		if info.VideoIndex < 0 && s.CodecType == "video" {
-			// The first video stream is the one we encode and score. streamMapArgs
+			// The first video stream is the one we encode and score. streamArgs
 			// may still preserve other streams, but probing must stay tied to a
 			// single reference stream.
 			info.VideoIndex = s.Index

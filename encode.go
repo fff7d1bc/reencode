@@ -9,17 +9,18 @@ import (
 )
 
 type EncodeOptions struct {
-	ProbeOptions   ProbeOptions
-	DryRun         bool
-	GroupCRF       bool
-	Overwrite      bool
-	ForceReencode  bool
-	LogFile        string
-	Verbose        bool
-	CRF            float64
-	CRFSet         bool
-	FallbackCRF    float64
-	FallbackCRFSet bool
+	ProbeOptions     ProbeOptions
+	DryRun           bool
+	GroupCRF         bool
+	Overwrite        bool
+	ForceReencode    bool
+	NoAudioTranscode bool
+	LogFile          string
+	Verbose          bool
+	CRF              float64
+	CRFSet           bool
+	FallbackCRF      float64
+	FallbackCRFSet   bool
 }
 
 func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) int {
@@ -113,13 +114,14 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf 
 	}
 
 	video := buildVideoArgs(info, opts.ProbeOptions.Preset, crf)
-	mapArgs, dropped := streamMapArgs(info)
+	mapArgs, audioArgs, dropped := streamArgs(info, opts)
 	for _, stream := range dropped {
 		fmt.Fprintf(os.Stderr, "%s: dropping unsupported stream %d (%s)\n", displayPath(file), stream.Index, stream.Type)
 	}
 	args := []string{"-y", "-i", file}
 	args = append(args, mapArgs...)
 	args = append(args, "-c", "copy")
+	args = append(args, audioArgs...)
 	args = append(args, video.ffmpegArgs("-c:v:0")...)
 	args = append(args, "-metadata", "REENCODED_DETAILS="+video.metadata())
 	args = append(args, tmp)
@@ -351,20 +353,33 @@ func chooseCRF(ctx context.Context, opts EncodeOptions, file string) (float64, e
 	return 0, fmt.Errorf("probe failed and --fallback-crf is not set: %w", err)
 }
 
-func streamMapArgs(info MediaInfo) ([]string, []StreamInfo) {
-	var args []string
+func streamArgs(info MediaInfo, opts EncodeOptions) ([]string, []string, []StreamInfo) {
+	var mapArgs []string
+	var audioArgs []string
 	var dropped []StreamInfo
+	audioOutputIndex := 0
 	for _, stream := range info.Streams {
 		switch stream.Type {
 		case "video", "audio", "subtitle", "attachment":
 			// Preserve streams by index rather than relying on ffmpeg defaults.
 			// Defaults can silently drop extra audio, subtitles, or attachments.
-			args = append(args, "-map", fmt.Sprintf("0:%d", stream.Index))
+			mapArgs = append(mapArgs, "-map", fmt.Sprintf("0:%d", stream.Index))
+			if stream.Type == "audio" {
+				if !opts.NoAudioTranscode && strings.EqualFold(stream.CodecName, "flac") {
+					// ffmpeg's a:N stream specifier refers to output audio
+					// order, not source stream index. Keep this counter tied to
+					// mapped audio streams so FLAC overrides hit the track they
+					// were derived from without changing placement.
+					spec := fmt.Sprintf("a:%d", audioOutputIndex)
+					audioArgs = append(audioArgs, "-c:"+spec, "libopus", "-b:"+spec, "256000")
+				}
+				audioOutputIndex++
+			}
 		default:
 			dropped = append(dropped, stream)
 		}
 	}
-	return args, dropped
+	return mapArgs, audioArgs, dropped
 }
 
 func validateOutput(path string) error {

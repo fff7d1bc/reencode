@@ -507,6 +507,16 @@ func TestParseEncodeForceReencodeFlag(t *testing.T) {
 	}
 }
 
+func TestParseEncodeNoAudioTranscodeFlag(t *testing.T) {
+	opts, _, err := parseEncodeArgs([]string{"--no-audio-transcode", "a.mkv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.NoAudioTranscode {
+		t.Fatalf("no-audio-transcode flag not parsed: %+v", opts)
+	}
+}
+
 func TestParseProbeSkipNameFlag(t *testing.T) {
 	opts, files, err := parseProbeArgs([]string{"--skip-name", "[reencoded]", "--skip-name", "[reencoded-av1]", "a.mkv"})
 	if err != nil {
@@ -1448,12 +1458,62 @@ func TestStreamMapArgsDropsData(t *testing.T) {
 		{Index: 3, Type: "attachment"},
 		{Index: 4, Type: "data"},
 	}}
-	args, dropped := streamMapArgs(info)
+	args, audioArgs, dropped := streamArgs(info, EncodeOptions{})
 	if len(dropped) != 1 || dropped[0].Index != 4 {
 		t.Fatalf("dropped = %+v", dropped)
 	}
 	if len(args) != 8 {
 		t.Fatalf("args = %v", args)
+	}
+	if len(audioArgs) != 0 {
+		t.Fatalf("unexpected audio args = %v", audioArgs)
+	}
+}
+
+func TestStreamArgsTranscodesFLACAudioToOpus(t *testing.T) {
+	info := MediaInfo{Streams: []StreamInfo{
+		{Index: 0, Type: "video"},
+		{Index: 3, Type: "audio", CodecName: "flac"},
+		{Index: 7, Type: "audio", CodecName: "aac"},
+	}}
+	mapArgs, audioArgs, dropped := streamArgs(info, EncodeOptions{})
+	if len(dropped) != 0 {
+		t.Fatalf("dropped = %+v", dropped)
+	}
+	if joined := strings.TrimSpace(joinArgs(mapArgs)); joined != "-map 0:0 -map 0:3 -map 0:7" {
+		t.Fatalf("map args = %q", joined)
+	}
+	if joined := strings.TrimSpace(joinArgs(audioArgs)); joined != "-c:a:0 libopus -b:a:0 256000" {
+		t.Fatalf("audio args = %q", joined)
+	}
+}
+
+func TestStreamArgsTranscodesMultipleFLACAudioStreamsByOutputAudioIndex(t *testing.T) {
+	info := MediaInfo{Streams: []StreamInfo{
+		{Index: 0, Type: "audio", CodecName: "aac"},
+		{Index: 4, Type: "audio", CodecName: "flac"},
+		{Index: 9, Type: "audio", CodecName: "FLAC"},
+	}}
+	_, audioArgs, dropped := streamArgs(info, EncodeOptions{})
+	if len(dropped) != 0 {
+		t.Fatalf("dropped = %+v", dropped)
+	}
+	want := "-c:a:1 libopus -b:a:1 256000 -c:a:2 libopus -b:a:2 256000"
+	if joined := strings.TrimSpace(joinArgs(audioArgs)); joined != want {
+		t.Fatalf("audio args = %q, want %q", joined, want)
+	}
+}
+
+func TestStreamArgsNoAudioTranscodeCopiesFLAC(t *testing.T) {
+	info := MediaInfo{Streams: []StreamInfo{
+		{Index: 1, Type: "audio", CodecName: "flac"},
+	}}
+	_, audioArgs, dropped := streamArgs(info, EncodeOptions{NoAudioTranscode: true})
+	if len(dropped) != 0 {
+		t.Fatalf("dropped = %+v", dropped)
+	}
+	if len(audioArgs) != 0 {
+		t.Fatalf("audio args = %v, want none", audioArgs)
 	}
 }
 

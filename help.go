@@ -70,6 +70,8 @@ Options:
       Overwrite existing output files.
   --force-reencode
       Encode even when input is already .mkv with AV1 video.
+  --no-audio-transcode
+      Copy all audio streams without automatic FLAC to Opus conversion.
   --log-file path
       Append before/after size records.
   --stall-timeout duration
