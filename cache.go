@@ -26,24 +26,26 @@ type probeCacheOptions struct {
 }
 
 type probeCacheHandle struct {
-	Root             string
-	Path             string
-	BinaryHash       string
-	InputFingerprint inputFingerprint
-	FingerprintKey   string
-	Options          probeCacheOptions
-	OptionsKey       string
-	SourcePath       string
+	Root              string
+	Path              string
+	BinaryHash        string
+	ExternalToolsHash string
+	InputFingerprint  inputFingerprint
+	FingerprintKey    string
+	Options           probeCacheOptions
+	OptionsKey        string
+	SourcePath        string
 }
 
 type probeCacheEnvelope struct {
-	SchemaVersion    int               `json:"schema_version"`
-	BinaryHash       string            `json:"binary_hash"`
-	InputFingerprint inputFingerprint  `json:"input_fingerprint"`
-	Options          probeCacheOptions `json:"options"`
-	SourcePath       string            `json:"source_path"`
-	CreatedAt        time.Time         `json:"created_at"`
-	Result           ProbeResult       `json:"result"`
+	SchemaVersion     int               `json:"schema_version"`
+	BinaryHash        string            `json:"binary_hash"`
+	ExternalToolsHash string            `json:"external_tools_hash"`
+	InputFingerprint  inputFingerprint  `json:"input_fingerprint"`
+	Options           probeCacheOptions `json:"options"`
+	SourcePath        string            `json:"source_path"`
+	CreatedAt         time.Time         `json:"created_at"`
+	Result            ProbeResult       `json:"result"`
 }
 
 type inputFingerprint struct {
@@ -73,6 +75,10 @@ func prepareProbeCache(opts ProbeOptions, file string) (*probeCacheHandle, error
 	if err != nil {
 		return nil, err
 	}
+	toolHash, err := externalToolsHash()
+	if err != nil {
+		return nil, err
+	}
 	// Cache identity includes the current executable. Probe behavior is still
 	// evolving, so a rebuilt binary must not silently trust older measurements.
 	info, err := probeMedia(file)
@@ -92,7 +98,7 @@ func prepareProbeCache(opts ProbeOptions, file string) (*probeCacheHandle, error
 	if err != nil {
 		return nil, err
 	}
-	return newProbeCacheHandle(root, binaryHash, fingerprint, fingerprintKey, options, optionsKey, file), nil
+	return newProbeCacheHandle(root, binaryHash, toolHash, fingerprint, fingerprintKey, options, optionsKey, file), nil
 }
 
 func defaultProbeCacheRoot() (string, error) {
@@ -103,16 +109,17 @@ func defaultProbeCacheRoot() (string, error) {
 	return filepath.Join(dir, "reencode", "probe"), nil
 }
 
-func newProbeCacheHandle(root, binaryHash string, fingerprint inputFingerprint, fingerprintKey string, options probeCacheOptions, optionsKey, sourcePath string) *probeCacheHandle {
+func newProbeCacheHandle(root, binaryHash, externalToolsHash string, fingerprint inputFingerprint, fingerprintKey string, options probeCacheOptions, optionsKey, sourcePath string) *probeCacheHandle {
 	return &probeCacheHandle{
-		Root:             root,
-		Path:             filepath.Join(root, binaryHash, fingerprintKey, optionsKey+".json"),
-		BinaryHash:       binaryHash,
-		InputFingerprint: fingerprint,
-		FingerprintKey:   fingerprintKey,
-		Options:          options,
-		OptionsKey:       optionsKey,
-		SourcePath:       sourcePath,
+		Root:              root,
+		Path:              filepath.Join(root, binaryHash, externalToolsHash, fingerprintKey, optionsKey+".json"),
+		BinaryHash:        binaryHash,
+		ExternalToolsHash: externalToolsHash,
+		InputFingerprint:  fingerprint,
+		FingerprintKey:    fingerprintKey,
+		Options:           options,
+		OptionsKey:        optionsKey,
+		SourcePath:        sourcePath,
 	}
 }
 
@@ -181,13 +188,14 @@ func storeProbeCache(handle *probeCacheHandle, result ProbeResult) error {
 		return err
 	}
 	envelope := probeCacheEnvelope{
-		SchemaVersion:    probeCacheSchemaVersion,
-		BinaryHash:       handle.BinaryHash,
-		InputFingerprint: handle.InputFingerprint,
-		Options:          handle.Options,
-		SourcePath:       handle.SourcePath,
-		CreatedAt:        time.Now().UTC(),
-		Result:           result,
+		SchemaVersion:     probeCacheSchemaVersion,
+		BinaryHash:        handle.BinaryHash,
+		ExternalToolsHash: handle.ExternalToolsHash,
+		InputFingerprint:  handle.InputFingerprint,
+		Options:           handle.Options,
+		SourcePath:        handle.SourcePath,
+		CreatedAt:         time.Now().UTC(),
+		Result:            result,
 	}
 	data, err := json.MarshalIndent(envelope, "", "  ")
 	if err != nil {
@@ -219,6 +227,7 @@ func storeProbeCache(handle *probeCacheHandle, result ProbeResult) error {
 func probeCacheEnvelopeMatches(envelope probeCacheEnvelope, handle *probeCacheHandle) bool {
 	return envelope.SchemaVersion == probeCacheSchemaVersion &&
 		envelope.BinaryHash == handle.BinaryHash &&
+		envelope.ExternalToolsHash == handle.ExternalToolsHash &&
 		envelope.InputFingerprint == handle.InputFingerprint &&
 		envelope.Options == handle.Options
 }

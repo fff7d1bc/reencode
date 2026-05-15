@@ -361,7 +361,7 @@ func TestProbeCacheStoreLoadRewritesFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle := newProbeCacheHandle(dir, "binary", fingerprint, fingerprintKey, opts, key, "/old/path.mkv")
+	handle := newProbeCacheHandle(dir, "binary", "tools", fingerprint, fingerprintKey, opts, key, "/old/path.mkv")
 	result := ProbeResult{File: "/old/path.mkv", Success: true, CRF: 24.25, TargetVMAF: 95, FloorVMAF: 94}
 	if err := storeProbeCache(handle, result); err != nil {
 		t.Fatal(err)
@@ -393,13 +393,47 @@ func TestProbeCacheRejectsBinaryMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored := newProbeCacheHandle(dir, "binary-a", fingerprint, fingerprintKey, opts, key, "a.mkv")
+	stored := newProbeCacheHandle(dir, "binary-a", "tools", fingerprint, fingerprintKey, opts, key, "a.mkv")
 	if err := storeProbeCache(stored, ProbeResult{File: "a.mkv", Success: true, CRF: 24.25}); err != nil {
 		t.Fatal(err)
 	}
-	lookup := newProbeCacheHandle(dir, "binary-b", fingerprint, fingerprintKey, opts, key, "a.mkv")
+	lookup := newProbeCacheHandle(dir, "binary-b", "tools", fingerprint, fingerprintKey, opts, key, "a.mkv")
 	if _, ok, err := loadProbeCache(lookup, "a.mkv"); err != nil || ok {
 		t.Fatalf("binary mismatch load = ok %v err %v, want miss nil", ok, err)
+	}
+}
+
+func TestProbeCacheRejectsExternalToolsMismatch(t *testing.T) {
+	dir := t.TempDir()
+	opts := normalizedProbeCacheOptions(defaultProbeOptions())
+	key, err := probeCacheOptionsKey(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := inputFingerprint{Size: 123, SampleHash: "sample"}
+	fingerprintKey, err := inputFingerprintKey(fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := newProbeCacheHandle(dir, "binary", "tools-a", fingerprint, fingerprintKey, opts, key, "a.mkv")
+	if err := storeProbeCache(stored, ProbeResult{File: "a.mkv", Success: true, CRF: 24.25}); err != nil {
+		t.Fatal(err)
+	}
+	lookup := newProbeCacheHandle(dir, "binary", "tools-b", fingerprint, fingerprintKey, opts, key, "a.mkv")
+	if _, ok, err := loadProbeCache(lookup, "a.mkv"); err != nil || ok {
+		t.Fatalf("external tools mismatch load = ok %v err %v, want miss nil", ok, err)
+	}
+}
+
+func TestExternalToolsHashFromParts(t *testing.T) {
+	base := externalToolsHashFromParts([]string{"ffmpeg -version", "version 1", "ffprobe -version", "version 1"})
+	same := externalToolsHashFromParts([]string{"ffmpeg -version", "version 1", "ffprobe -version", "version 1"})
+	changed := externalToolsHashFromParts([]string{"ffmpeg -version", "version 2", "ffprobe -version", "version 1"})
+	if base != same {
+		t.Fatalf("same tool output produced different hashes")
+	}
+	if base == changed {
+		t.Fatalf("changed tool output did not change hash")
 	}
 }
 
@@ -415,7 +449,7 @@ func TestProbeCacheStoreLoadPreservesAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle := newProbeCacheHandle(dir, "binary", fingerprint, fingerprintKey, opts, key, "a.mkv")
+	handle := newProbeCacheHandle(dir, "binary", "tools", fingerprint, fingerprintKey, opts, key, "a.mkv")
 	result := ProbeResult{
 		File:    "a.mkv",
 		Success: true,
@@ -1959,7 +1993,7 @@ func TestPersistGroupProbeCachesWritesExpandedAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle := newProbeCacheHandle(dir, "binary", fingerprint, fingerprintKey, cacheOpts, key, "a.mkv")
+	handle := newProbeCacheHandle(dir, "binary", "tools", fingerprint, fingerprintKey, cacheOpts, key, "a.mkv")
 	inputs := []groupInput{{
 		File:   "a.mkv",
 		Cache:  handle,
@@ -1996,7 +2030,7 @@ func TestGroupFallbackPersistsExpandedAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle := newProbeCacheHandle(dir, "binary", fingerprint, fingerprintKey, cacheOpts, key, "a.mkv")
+	handle := newProbeCacheHandle(dir, "binary", "tools", fingerprint, fingerprintKey, cacheOpts, key, "a.mkv")
 	inputs := []groupInput{{
 		File:   "a.mkv",
 		Cache:  handle,
@@ -2036,7 +2070,7 @@ func TestSingleFileFallbackPersistsExpandedAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle := newProbeCacheHandle(dir, "binary", fingerprint, fingerprintKey, cacheOpts, key, "a.mkv")
+	handle := newProbeCacheHandle(dir, "binary", "tools", fingerprint, fingerprintKey, cacheOpts, key, "a.mkv")
 	result := ProbeResult{File: "a.mkv", Success: true, CRF: 24.25}
 	session := &probeSession{search: crfSearch{attempts: map[int]ProbeAttempt{
 		qFromCRF(24.25): {CRF: 24.25, Score: 95.2, WorstSampleScore: 94.1},
