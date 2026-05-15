@@ -149,23 +149,8 @@ reencode encode [options] FILE...
 Probe each eligible input, encode it to `name_[e-av1].mkv`, validate the output,
 and remove the source after validation succeeds.
 
-Common options:
-
-- `--preset N`: use a different SVT-AV1 preset. Default: `4`.
-- `--crf N`: bypass probing and encode with this CRF.
-- `--fallback-crf N`: use this CRF when probing fails.
-- `--group-crf`: probe all inputs first and encode with one shared CRF.
-- `--overwrite`: allow replacing an existing output file.
-- `--force-reencode`: encode even when the input is already `.mkv` with AV1
-  video.
-- `--no-audio-transcode`: copy all audio streams without converting FLAC to
-  Opus.
-- `--skip-name TEXT`: skip files whose basename contains this text. Repeat the
-  option for multiple markers.
-- `--check-workers N`: set parallel eligibility check workers. Default: `4`.
-- `--dry-run`: print the final ffmpeg command without encoding.
-- `--log-file PATH`: append before/after size records.
-- `--no-progress`: disable the interactive progress display.
+`encode` accepts the shared probing options below because it normally probes
+before doing the final encode.
 
 ### `probe`
 
@@ -176,8 +161,19 @@ reencode probe [options] FILE...
 Probe files and report the selected CRF without final encoding. With `--json`,
 results are written as JSONL on stdout.
 
-Probe options shared by `probe` and `encode`:
+`probe` accepts the same shared probing options as `encode`, plus `--json` for
+machine-readable output.
 
+## Options
+
+### Shared By `encode` And `probe`
+
+These options control input checks, sample selection, CRF search, VMAF scoring,
+cache behavior, temporary probe files, and progress. They apply to `encode`
+because final encoding uses the same probe engine unless `--crf` bypasses
+probing.
+
+- `--preset N`: use a different SVT-AV1 preset. Default: `4`.
 - `--target-vmaf N`: weighted mean VMAF target. Default: `95`.
 - `--vmaf-floor N`: worst-sample floor. Default: `94`.
 - `--max-encoded-percent N`: maximum encoded sample size percent. Default: `90`.
@@ -194,6 +190,25 @@ Probe options shared by `probe` and `encode`:
 - `--keep-temp`: keep encoded probe samples.
 - `--stall-timeout DURATION`: kill ffmpeg if frame progress stalls. Default:
   `10m`.
+- `--no-progress`: disable the interactive progress display.
+- `--verbose`: print extra details.
+
+### `encode` Only
+
+- `--crf N`: bypass probing and encode with this CRF.
+- `--fallback-crf N`: use this CRF when probing fails.
+- `--group-crf`: probe all inputs first and encode with one shared CRF.
+- `--overwrite`: allow replacing an existing output file.
+- `--force-reencode`: encode even when the input is already `.mkv` with AV1
+  video.
+- `--no-audio-transcode`: copy all audio streams without converting FLAC to
+  Opus.
+- `--dry-run`: print the final ffmpeg command without encoding.
+- `--log-file PATH`: append before/after size records.
+
+### `probe` Only
+
+- `--json`: write JSONL results to stdout.
 
 ## Group Mode
 
