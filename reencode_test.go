@@ -889,6 +889,44 @@ func TestInterpolateQUsesWorstSampleFloor(t *testing.T) {
 	}
 }
 
+func TestInterpolateQUsesBracketOutsideCurrentBounds(t *testing.T) {
+	search := crfSearch{
+		options: ProbeOptions{
+			FloorVMAF:         94,
+			MaxEncodedPercent: 90,
+		},
+		attempts: map[int]ProbeAttempt{},
+	}
+	for _, attempt := range []ProbeAttempt{
+		{CRF: 37.5, Score: 95.28, WorstSampleScore: 94.64, EncodedPercent: 48},
+		{CRF: 53.75, Score: 87.25, WorstSampleScore: 85.25, EncodedPercent: 17},
+	} {
+		search.attempts[qFromCRF(attempt.CRF)] = attempt
+	}
+
+	got := search.interpolateQ(95, qFromCRF(45.5), qFromCRF(37.75), qFromCRF(53.5))
+	if got != qFromCRF(38) {
+		t.Fatalf("interpolated CRF = %s, want 38", terseFloat(crfFromQ(got)))
+	}
+}
+
+func TestInterpolateQFallsBackForUnhelpfulScores(t *testing.T) {
+	search := crfSearch{
+		options: ProbeOptions{
+			FloorVMAF:         94,
+			MaxEncodedPercent: 90,
+		},
+		attempts: map[int]ProbeAttempt{
+			qFromCRF(37.5):  {CRF: 37.5, Score: 95.1, WorstSampleScore: 94.5, EncodedPercent: 48},
+			qFromCRF(53.75): {CRF: 53.75, Score: 96.0, WorstSampleScore: 90.0, EncodedPercent: 17},
+		},
+	}
+	fallback := qFromCRF(45.5)
+	if got := search.interpolateQ(95, fallback, qFromCRF(37.75), qFromCRF(53.5)); got != fallback {
+		t.Fatalf("interpolated CRF = %s, want fallback %s", terseFloat(crfFromQ(got)), terseFloat(crfFromQ(fallback)))
+	}
+}
+
 func TestPlanSamples(t *testing.T) {
 	info := MediaInfo{Path: "a.mp4", Duration: 5 * time.Minute, FPS: 30, VideoIndex: 0, VideoCodec: "h264"}
 	plan := planSamples(info, 0, 20*time.Second)
@@ -1367,7 +1405,7 @@ func TestFindForTargetKeepsBestWhenLaterAttemptMissesQualityAndSize(t *testing.T
 		attempts: map[int]ProbeAttempt{
 			qFromCRF(37.5):  {CRF: 37.5, Score: 90, WorstSampleScore: 88, EncodedPercent: 50},
 			qFromCRF(21):    best,
-			qFromCRF(29.25): {CRF: 29.25, Score: 90, WorstSampleScore: 88, EncodedPercent: 120},
+			qFromCRF(21.25): {CRF: 21.25, Score: 90, WorstSampleScore: 88, EncodedPercent: 120},
 		},
 	}
 	got, ok, err := search.findForTarget(context.Background(), 95)

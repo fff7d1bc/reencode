@@ -430,42 +430,48 @@ func (s *crfSearch) findForTarget(ctx context.Context, target float64) (ProbeAtt
 }
 
 func (s *crfSearch) interpolateQ(target float64, fallback, low, high int) int {
-	var better *ProbeAttempt
-	var worse *ProbeAttempt
-	for q, attempt := range s.attempts {
-		if q < low || q > high {
-			continue
-		}
-		passSize := attempt.EncodedPercent <= s.options.MaxEncodedPercent
-		passScore := s.qualityOK(attempt, target)
+	var betterQ, worseQ int
+	var better, worse *ProbeAttempt
+	// Search bounds move after every attempt, but older attempts still define
+	// the quality curve. Use the nearest known pass/fail bracket, then clamp the
+	// interpolated guess back into the active bounds.
+	for passQ, pass := range s.attempts {
+		passSize := pass.EncodedPercent <= s.options.MaxEncodedPercent
+		passScore := s.qualityOK(pass, target)
 		if passScore && passSize {
-			a := attempt
-			if better == nil || q > qFromCRF(better.CRF) {
-				better = &a
-			}
-		}
-		if !passScore {
-			a := attempt
-			if worse == nil || q < qFromCRF(worse.CRF) {
-				worse = &a
+			for failQ, fail := range s.attempts {
+				if failQ <= passQ {
+					continue
+				}
+				if s.qualityOK(fail, target) {
+					continue
+				}
+				gap := failQ - passQ
+				bestGap := worseQ - betterQ
+				if better == nil || gap < bestGap || (gap == bestGap && passQ > betterQ) {
+					p := pass
+					f := fail
+					better = &p
+					worse = &f
+					betterQ = passQ
+					worseQ = failQ
+				}
 			}
 		}
 	}
 	if better == nil || worse == nil || better.Score <= worse.Score {
 		return fallback
 	}
-	bq := qFromCRF(better.CRF)
-	wq := qFromCRF(worse.CRF)
-	if bq >= wq {
+	if betterQ >= worseQ {
 		return fallback
 	}
 	factor := (target - worse.Score) / (better.Score - worse.Score)
-	q := int(math.Round(float64(wq) - float64(wq-bq)*factor))
-	if q <= bq {
-		q = bq + 1
+	q := int(math.Round(float64(worseQ) - float64(worseQ-betterQ)*factor))
+	if q <= betterQ {
+		q = betterQ + 1
 	}
-	if q >= wq {
-		q = wq - 1
+	if q >= worseQ {
+		q = worseQ - 1
 	}
 	if q < low {
 		q = low
