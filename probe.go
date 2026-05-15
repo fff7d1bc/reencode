@@ -47,7 +47,11 @@ type ProbeAttempt struct {
 	OutlierNeighborScores []float64 `json:"outlier_neighbor_scores,omitempty"`
 	// sampleScores is intentionally not exported to JSON. It is only needed
 	// while the process is alive to identify a single borderline low sample.
-	sampleScores []float64
+	sampleScores  []float64
+	partial       bool
+	partialReason string
+	samplesDone   int
+	samplesTotal  int
 }
 
 type ProbeResult struct {
@@ -510,6 +514,9 @@ func (s *crfSearch) refineBounds(ctx context.Context, target float64, best Probe
 }
 
 func (s *crfSearch) qualityOK(attempt ProbeAttempt, target float64) bool {
+	if attempt.partial {
+		return false
+	}
 	return attempt.Score >= target && (attempt.WorstSampleScore >= s.options.FloorVMAF || attempt.OutlierAccepted)
 }
 
@@ -552,6 +559,12 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 		totalSampleBytes += sample.SourceBytes
 		totalEncodedBytes += encodedSize
 		totalSampleDuration += sample.Duration
+		if failed, reason := partialFloorFailure(sampleScores, s.options.FloorVMAF); failed {
+			attempt := s.partialAttempt(crf, scores, sampleScores, totalSampleBytes, totalEncodedBytes, totalSampleDuration, i+1, len(s.samples), reason)
+			s.attempts[q] = attempt
+			s.reportAttempt(q, attempt)
+			return attempt, nil
+		}
 	}
 	summary := summarizeScores(scores)
 
@@ -574,6 +587,44 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 	return attempt, nil
 }
 
+func (s *crfSearch) partialAttempt(crf float64, scores []sampleScore, sampleScores []float64, totalSampleBytes, totalEncodedBytes int64, totalSampleDuration time.Duration, done, total int, reason string) ProbeAttempt {
+	summary := summarizeScores(scores)
+	encodedPercent := 100 * float64(totalEncodedBytes) / float64(totalSampleBytes)
+	predictedSize := int64(float64(totalEncodedBytes) * (s.info.Duration.Seconds() / totalSampleDuration.Seconds()))
+	return ProbeAttempt{
+		CRF:              crf,
+		Score:            summary.Mean,
+		WorstSampleScore: summary.Worst,
+		EncodedPercent:   encodedPercent,
+		PredictedSize:    predictedSize,
+		sampleScores:     sampleScores,
+		partial:          true,
+		partialReason:    reason,
+		samplesDone:      done,
+		samplesTotal:     total,
+	}
+}
+
+func partialFloorFailure(scores []float64, floor float64) (bool, string) {
+	below := 0
+	worst := 101.0
+	for _, score := range scores {
+		if score < worst {
+			worst = score
+		}
+		if score < floor {
+			below++
+		}
+	}
+	if below > 1 {
+		return true, fmt.Sprintf("%d samples below floor %.2f", below, floor)
+	}
+	if below == 1 && worst < floor-outlierFloorTolerance {
+		return true, fmt.Sprintf("worst %.2f below floor %.2f", worst, floor)
+	}
+	return false, ""
+}
+
 func (s *crfSearch) reportAttempt(q int, attempt ProbeAttempt) {
 	if s.options.Progress == nil {
 		return
@@ -587,7 +638,11 @@ func (s *crfSearch) reportAttempt(q int, attempt ProbeAttempt) {
 	// Cached attempts, retries at a lower effective target, and final
 	// selection can all reuse a CRF without re-encoding it. Report each CRF once
 	// so the selected line is never the first visible result for that CRF.
-	s.options.Progress.PrintLine(formatProbeAttemptLine(attempt))
+	if attempt.partial {
+		s.options.Progress.PrintLine(formatPartialProbeAttemptLine(attempt))
+	} else {
+		s.options.Progress.PrintLine(formatProbeAttemptLine(attempt))
+	}
 	s.reportedAttempts[q] = true
 }
 
@@ -624,6 +679,15 @@ func formatProbeAttemptLine(attempt ProbeAttempt) string {
 
 func formatSelectedProbeAttemptLine(attempt ProbeAttempt) string {
 	return formatProbeAttemptLineWithPrefix(">>> selected", attempt)
+}
+
+func formatPartialProbeAttemptLine(attempt ProbeAttempt) string {
+	return fmt.Sprintf(">>> crf %5s  failed after %d/%d samples: %s",
+		terseFloat(attempt.CRF),
+		attempt.samplesDone,
+		attempt.samplesTotal,
+		attempt.partialReason,
+	)
 }
 
 func formatProbeAttemptLineWithPrefix(prefix string, attempt ProbeAttempt) string {
@@ -677,7 +741,7 @@ func outlierProgressScope(crf float64, done, total int) probeProgress {
 }
 
 func (s *crfSearch) maybeConfirmOutlier(ctx context.Context, q int, target float64, attempt ProbeAttempt) (ProbeAttempt, error) {
-	if s.options.NoOutlierCheck || attempt.OutlierChecked || attempt.WorstSampleScore >= s.options.FloorVMAF || attempt.Score < target {
+	if attempt.partial || s.options.NoOutlierCheck || attempt.OutlierChecked || attempt.WorstSampleScore >= s.options.FloorVMAF || attempt.Score < target {
 		return attempt, nil
 	}
 	idx, ok := s.singleBorderlineOutlier(attempt)
@@ -906,6 +970,9 @@ func (s *crfSearch) cleanupEncodedSamples() {
 func (s *crfSearch) sortedAttempts() []ProbeAttempt {
 	out := make([]ProbeAttempt, 0, len(s.attempts))
 	for _, attempt := range s.attempts {
+		if attempt.partial {
+			continue
+		}
 		out = append(out, attempt)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CRF < out[j].CRF })

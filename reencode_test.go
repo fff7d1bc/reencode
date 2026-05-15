@@ -927,6 +927,44 @@ func TestInterpolateQFallsBackForUnhelpfulScores(t *testing.T) {
 	}
 }
 
+func TestInterpolateQUsesPartialFailure(t *testing.T) {
+	search := crfSearch{
+		options: ProbeOptions{
+			FloorVMAF:         94,
+			MaxEncodedPercent: 90,
+		},
+		attempts: map[int]ProbeAttempt{
+			qFromCRF(37.5):  {CRF: 37.5, Score: 95.28, WorstSampleScore: 94.64, EncodedPercent: 48},
+			qFromCRF(53.75): {CRF: 53.75, Score: 87.25, WorstSampleScore: 85.25, EncodedPercent: 17, partial: true},
+		},
+	}
+	got := search.interpolateQ(95, qFromCRF(45.5), qFromCRF(37.75), qFromCRF(53.5))
+	if got != qFromCRF(38) {
+		t.Fatalf("interpolated CRF = %s, want 38", terseFloat(crfFromQ(got)))
+	}
+}
+
+func TestPartialFloorFailure(t *testing.T) {
+	tests := []struct {
+		name   string
+		scores []float64
+		fail   bool
+	}{
+		{name: "far below floor", scores: []float64{93.1}, fail: true},
+		{name: "two below floor", scores: []float64{93.9, 93.8}, fail: true},
+		{name: "one borderline below floor", scores: []float64{93.9, 95.2}, fail: false},
+		{name: "all pass", scores: []float64{94.0, 95.2}, fail: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, _ := partialFloorFailure(tt.scores, 94)
+			if got != tt.fail {
+				t.Fatalf("partialFloorFailure(%v) = %v, want %v", tt.scores, got, tt.fail)
+			}
+		})
+	}
+}
+
 func TestPlanSamples(t *testing.T) {
 	info := MediaInfo{Path: "a.mp4", Duration: 5 * time.Minute, FPS: 30, VideoIndex: 0, VideoCodec: "h264"}
 	plan := planSamples(info, 0, 20*time.Second)
@@ -1323,6 +1361,21 @@ func TestFormatProbeAttemptLineDoesNotInlineAcceptedOutlier(t *testing.T) {
 	}
 }
 
+func TestFormatPartialProbeAttemptLine(t *testing.T) {
+	line := formatPartialProbeAttemptLine(ProbeAttempt{
+		CRF:           45.5,
+		partial:       true,
+		partialReason: "worst 92.80 below floor 94.00",
+		samplesDone:   2,
+		samplesTotal:  10,
+	})
+	for _, want := range []string{"crf  45.5", "failed after 2/10 samples", "worst 92.80 below floor 94.00"} {
+		if !contains(line, want) {
+			t.Fatalf("missing %q in %q", want, line)
+		}
+	}
+}
+
 func TestFormatOutlierAcceptedLine(t *testing.T) {
 	line := formatOutlierAcceptedLine(ProbeAttempt{OutlierScore: 93.9})
 	for _, want := range []string{"accepted one local low sample 93.90", "nearby windows passed the VMAF floor"} {
@@ -1441,6 +1494,17 @@ func TestReportAttemptPrintsOncePerCRF(t *testing.T) {
 	text := buf.String()
 	if countOccurrences(text, ">>> crf 12.75") != 1 {
 		t.Fatalf("attempt should print once:\n%s", text)
+	}
+}
+
+func TestSortedAttemptsSkipsPartialFailures(t *testing.T) {
+	search := crfSearch{attempts: map[int]ProbeAttempt{
+		qFromCRF(24):   {CRF: 24, Score: 95.4, WorstSampleScore: 94.2},
+		qFromCRF(24.5): {CRF: 24.5, Score: 93.1, WorstSampleScore: 93.1, partial: true},
+	}}
+	got := search.sortedAttempts()
+	if len(got) != 1 || got[0].CRF != 24 {
+		t.Fatalf("sorted attempts = %+v, want only full attempt", got)
 	}
 }
 
