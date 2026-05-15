@@ -92,6 +92,13 @@ For each file, probing does this:
 5. Search CRF values and select the highest CRF that still satisfies the
    quality rules and sample-size cap.
 
+The CRF search starts with a broad binary-search style probe, then uses already
+measured pass/fail points to estimate the next useful CRF. This keeps the search
+conservative while avoiding obvious wasted probes when the quality boundary is
+already clear. If a CRF has already become impossible because sample scores are
+too far below the VMAF floor, `reencode` stops that CRF early and moves on
+instead of scoring the remaining sample windows.
+
 The VMAF scoring path is intentionally conservative:
 
 - timestamps are normalized before scoring
@@ -223,9 +230,12 @@ Successful probe results are cached under:
 ```
 
 The cache key includes the current binary SHA-512, probe-affecting options,
-cache schema version, and a fast input fingerprint. The input fingerprint uses
-file size, mtime, media metadata, and SHA-512 over first/middle/last file
-slices, so large videos do not need to be read in full for cache lookup.
+cache schema version, an external ffmpeg/ffprobe fingerprint, and a fast input
+fingerprint. The external fingerprint is based on ffmpeg and ffprobe version
+output plus the SVT-AV1 encoder and libvmaf filter help output. The input
+fingerprint uses file size, mtime, media metadata, and SHA-512 over
+first/middle/last file slices, so large videos do not need to be read in full
+for cache lookup.
 
 Safety behavior:
 
@@ -247,6 +257,37 @@ The ffmpeg build must support:
 
 `reencode` checks these capabilities before probing or encoding and fails early
 if a required encoder or filter is missing.
+
+## FFmpeg Builds
+
+Use a recent full-featured ffmpeg build when possible. Probe scores, encoder
+behavior, and available filters can vary across ffmpeg releases and distro
+package builds.
+
+On Linux, one practical option is Homebrew for Linux, also known as linuxbrew.
+Its `ffmpeg-full` package is often a convenient way to get an ffmpeg build with
+SVT-AV1 and libvmaf support. The regular Homebrew `ffmpeg` package is not the
+right package for this tool when it does not expose `libsvtav1`.
+
+```sh
+brew install ffmpeg-full
+```
+
+`ffmpeg-full` is keg-only. That means Homebrew installs it but does not link it
+as the default `ffmpeg` in the normal Homebrew prefix. After installing, make
+sure the `ffmpeg` and `ffprobe` found first in `PATH` are the full Homebrew
+versions, not a stripped-down system package or the regular Homebrew `ffmpeg`:
+
+```sh
+which -a ffmpeg
+which -a ffprobe
+ffmpeg -hide_banner -encoders | grep libsvtav1
+ffmpeg -hide_banner -filters | grep libvmaf
+```
+
+`which -a ffmpeg` should show the `ffmpeg-full` binary before any other ffmpeg.
+If it does not, follow the `brew info ffmpeg-full` PATH instructions for your
+installation.
 
 ## Build
 
