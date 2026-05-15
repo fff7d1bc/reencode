@@ -7,7 +7,11 @@ import (
 	"time"
 )
 
-const defaultVMAFPixFmt = "yuv420p10le"
+const (
+	defaultVMAFPixFmt       = "yuv420p10le"
+	vmafDefaultModelVersion = "vmaf_v0.6.1"
+	vmaf4KModelVersion      = "vmaf_4k_v0.6.1"
+)
 
 type sampleScore struct {
 	Score    float64
@@ -74,9 +78,9 @@ func vmafFilter(info MediaInfo) string {
 		// which makes the CRF search less likely to hide bad samples.
 		"pool=harmonic_mean",
 		fmt.Sprintf("n_threads=%d", runtime.GOMAXPROCS(0)),
-	}
-	if vmafUse4KModel(info.Width, info.Height) {
-		args = append(args, "model=version=vmaf_4k_v0.6.1")
+		// Model selection is part of the quality policy. Keep it explicit so
+		// scores do not drift with ffmpeg/libvmaf defaults or package upgrades.
+		"model=version=" + vmafModelVersion(info),
 	}
 	return prefix + "libvmaf=" + strings.Join(args, ":")
 }
@@ -105,6 +109,13 @@ func vmafScaleFilter(width, height int) string {
 
 func vmafUse4KModel(width, height int) bool {
 	return width > 2560 && height > 1440
+}
+
+func vmafModelVersion(info MediaInfo) string {
+	if vmafUse4KModel(info.Width, info.Height) {
+		return vmaf4KModelVersion
+	}
+	return vmafDefaultModelVersion
 }
 
 func minimallyScale(width, height, targetWidth, targetHeight int) (string, string) {

@@ -97,9 +97,16 @@ The VMAF scoring path is intentionally conservative:
 - timestamps are normalized before scoring
 - source and encoded samples use a shared pixel format
 - VMAF uses `pool=harmonic_mean`
-- the 4K VMAF model is selected automatically for 4K sources
+- VMAF model selection is explicit and deterministic
+- normal sources use `vmaf_v0.6.1`
+- 4K-oriented sources use `vmaf_4k_v0.6.1`
 - low-resolution sources may be scaled for VMAF only
 - the final decision uses both a weighted mean score and a worst-sample floor.
+
+`reencode` does not try to discover and use the newest installed VMAF model at
+runtime. Model choice changes the score, so automatic discovery would make
+results vary across machines and package upgrades. The selected model is part
+of the probe cache identity.
 
 ## Target VMAF And Floor
 

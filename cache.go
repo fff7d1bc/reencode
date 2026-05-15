@@ -22,6 +22,7 @@ type probeCacheOptions struct {
 	NoOutlierCheck    bool    `json:"no_outlier_check"`
 	Samples           int     `json:"samples"`
 	SampleDurationNS  int64   `json:"sample_duration_ns"`
+	VMAFModel         string  `json:"vmaf_model"`
 }
 
 type probeCacheHandle struct {
@@ -86,7 +87,7 @@ func prepareProbeCache(opts ProbeOptions, file string) (*probeCacheHandle, error
 	if err != nil {
 		return nil, err
 	}
-	options := normalizedProbeCacheOptions(opts)
+	options := normalizedProbeCacheOptionsForMedia(opts, info)
 	optionsKey, err := probeCacheOptionsKey(options)
 	if err != nil {
 		return nil, err
@@ -116,8 +117,18 @@ func newProbeCacheHandle(root, binaryHash string, fingerprint inputFingerprint, 
 }
 
 func normalizedProbeCacheOptions(opts ProbeOptions) probeCacheOptions {
+	return normalizedProbeCacheOptionsWithModel(opts, vmafDefaultModelVersion)
+}
+
+func normalizedProbeCacheOptionsForMedia(opts ProbeOptions, info MediaInfo) probeCacheOptions {
+	return normalizedProbeCacheOptionsWithModel(opts, vmafModelVersion(info))
+}
+
+func normalizedProbeCacheOptionsWithModel(opts ProbeOptions, model string) probeCacheOptions {
 	// Only include options that affect probe results. UI/logging/temp settings
-	// must not split cache entries for identical measurements.
+	// must not split cache entries for identical measurements. The VMAF model
+	// is included because changing it changes scores even with identical
+	// samples and encoder settings.
 	return probeCacheOptions{
 		Preset:            opts.Preset,
 		TargetVMAF:        opts.TargetVMAF,
@@ -126,6 +137,7 @@ func normalizedProbeCacheOptions(opts ProbeOptions) probeCacheOptions {
 		NoOutlierCheck:    opts.NoOutlierCheck,
 		Samples:           opts.Samples,
 		SampleDurationNS:  int64(opts.SampleDuration),
+		VMAFModel:         model,
 	}
 }
 

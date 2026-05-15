@@ -344,6 +344,9 @@ func TestProbeCacheOptionsIncludeAffectingFields(t *testing.T) {
 	if normalizedProbeCacheOptions(base) == normalizedProbeCacheOptions(changed) {
 		t.Fatalf("outlier setting should affect cache options")
 	}
+	if normalizedProbeCacheOptionsForMedia(base, MediaInfo{Width: 1920, Height: 1080}) == normalizedProbeCacheOptionsForMedia(base, MediaInfo{Width: 3840, Height: 2160}) {
+		t.Fatalf("VMAF model should affect cache options")
+	}
 }
 
 func TestProbeCacheStoreLoadRewritesFile(t *testing.T) {
@@ -1674,6 +1677,9 @@ func TestVMAFFilterDefault1080p(t *testing.T) {
 	}
 	if contains(got, "vmaf_4k") {
 		t.Fatalf("unexpected 4k model in %q", got)
+	}
+	if !contains(got, "model=version=vmaf_v0.6.1") {
+		t.Fatalf("expected explicit default model in %q", got)
 	}
 }
 
