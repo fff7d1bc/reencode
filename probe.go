@@ -434,11 +434,11 @@ func (s *crfSearch) findForTarget(ctx context.Context, target float64) (ProbeAtt
 }
 
 func (s *crfSearch) interpolateQ(target float64, fallback, low, high int) int {
-	var betterQ, worseQ int
-	var better, worse *ProbeAttempt
 	// Search bounds move after every attempt, but older attempts still define
 	// the quality curve. Use the nearest known pass/fail bracket, then clamp the
 	// interpolated guess back into the active bounds.
+	var bestQ, bestGap, bestPassQ int
+	found := false
 	for passQ, pass := range s.attempts {
 		passSize := pass.EncodedPercent <= s.options.MaxEncodedPercent
 		passScore := s.qualityOK(pass, target)
@@ -450,40 +450,75 @@ func (s *crfSearch) interpolateQ(target float64, fallback, low, high int) int {
 				if s.qualityOK(fail, target) {
 					continue
 				}
+				q, ok := s.interpolateAttemptQ(target, passQ, pass, failQ, fail)
+				if !ok {
+					continue
+				}
 				gap := failQ - passQ
-				bestGap := worseQ - betterQ
-				if better == nil || gap < bestGap || (gap == bestGap && passQ > betterQ) {
-					p := pass
-					f := fail
-					better = &p
-					worse = &f
-					betterQ = passQ
-					worseQ = failQ
+				if !found || gap < bestGap || (gap == bestGap && passQ > bestPassQ) {
+					bestQ = q
+					bestGap = gap
+					bestPassQ = passQ
+					found = true
 				}
 			}
 		}
 	}
-	if better == nil || worse == nil || better.Score <= worse.Score {
+	if !found {
 		return fallback
 	}
-	if betterQ >= worseQ {
-		return fallback
+	if bestQ < low {
+		bestQ = low
 	}
-	factor := (target - worse.Score) / (better.Score - worse.Score)
-	q := int(math.Round(float64(worseQ) - float64(worseQ-betterQ)*factor))
-	if q <= betterQ {
-		q = betterQ + 1
+	if bestQ > high {
+		bestQ = high
 	}
-	if q >= worseQ {
-		q = worseQ - 1
+	return bestQ
+}
+
+func (s *crfSearch) interpolateAttemptQ(target float64, passQ int, pass ProbeAttempt, failQ int, fail ProbeAttempt) (int, bool) {
+	if passQ >= failQ {
+		return 0, false
 	}
-	if q < low {
-		q = low
+	candidates := []int{}
+	if !fail.partial && fail.Score < target {
+		if q, ok := interpolateMetricQ(passQ, pass.Score, failQ, fail.Score, target); ok {
+			candidates = append(candidates, q)
+		}
 	}
-	if q > high {
-		q = high
+	// Floor misses are often the limiting constraint even when average VMAF is
+	// already above target. Partial attempts are created only by floor
+	// fail-fast, so use the worst sample rather than the partial mean.
+	if fail.partial || (fail.WorstSampleScore < s.options.FloorVMAF && !fail.OutlierAccepted) {
+		if q, ok := interpolateMetricQ(passQ, pass.WorstSampleScore, failQ, fail.WorstSampleScore, s.options.FloorVMAF); ok {
+			candidates = append(candidates, q)
+		}
 	}
-	return q
+	if len(candidates) == 0 {
+		return 0, false
+	}
+	q := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if candidate < q {
+			q = candidate
+		}
+	}
+	return q, true
+}
+
+func interpolateMetricQ(passQ int, passValue float64, failQ int, failValue float64, threshold float64) (int, bool) {
+	if passQ >= failQ || passValue < threshold || failValue >= threshold || passValue <= failValue {
+		return 0, false
+	}
+	factor := (threshold - failValue) / (passValue - failValue)
+	q := int(math.Round(float64(failQ) - float64(failQ-passQ)*factor))
+	if q <= passQ {
+		q = passQ + 1
+	}
+	if q >= failQ {
+		q = failQ - 1
+	}
+	return q, true
 }
 
 func (s *crfSearch) refineBounds(ctx context.Context, target float64, best ProbeAttempt, found bool) (ProbeAttempt, bool, error) {

@@ -923,6 +923,60 @@ func TestInterpolateQUsesWorstSampleFloor(t *testing.T) {
 	}
 }
 
+func TestInterpolateQUsesFloorWhenMeanAlreadyPasses(t *testing.T) {
+	search := crfSearch{
+		options: ProbeOptions{
+			FloorVMAF:         94,
+			MaxEncodedPercent: 90,
+		},
+		attempts: map[int]ProbeAttempt{
+			qFromCRF(21):   {CRF: 21, Score: 96.71, WorstSampleScore: 96.03, EncodedPercent: 6},
+			qFromCRF(37.5): {CRF: 37.5, Score: 95.10, WorstSampleScore: 91.82, EncodedPercent: 3},
+		},
+	}
+
+	got := search.interpolateQ(95, qFromCRF(37.25), qFromCRF(21.25), qFromCRF(37.25))
+	if got != qFromCRF(29) {
+		t.Fatalf("interpolated CRF = %s, want 29", terseFloat(crfFromQ(got)))
+	}
+}
+
+func TestInterpolateQUsesPartialFloorWhenMeanAlreadyPasses(t *testing.T) {
+	search := crfSearch{
+		options: ProbeOptions{
+			FloorVMAF:         94,
+			MaxEncodedPercent: 90,
+		},
+		attempts: map[int]ProbeAttempt{
+			qFromCRF(21):   {CRF: 21, Score: 96.71, WorstSampleScore: 96.03, EncodedPercent: 6},
+			qFromCRF(37.5): {CRF: 37.5, Score: 95.10, WorstSampleScore: 91.82, EncodedPercent: 3, partial: true},
+		},
+	}
+
+	got := search.interpolateQ(95, qFromCRF(37.25), qFromCRF(21.25), qFromCRF(37.25))
+	if got != qFromCRF(29) {
+		t.Fatalf("interpolated CRF = %s, want 29", terseFloat(crfFromQ(got)))
+	}
+}
+
+func TestInterpolateQChoosesConservativeCandidateWhenMeanAndFloorFail(t *testing.T) {
+	search := crfSearch{
+		options: ProbeOptions{
+			FloorVMAF:         94,
+			MaxEncodedPercent: 90,
+		},
+		attempts: map[int]ProbeAttempt{
+			qFromCRF(21):   {CRF: 21, Score: 96.00, WorstSampleScore: 96.00, EncodedPercent: 6},
+			qFromCRF(37.5): {CRF: 37.5, Score: 94.50, WorstSampleScore: 89.00, EncodedPercent: 3},
+		},
+	}
+
+	got := search.interpolateQ(95, qFromCRF(37.25), qFromCRF(21.25), qFromCRF(37.25))
+	if got != qFromCRF(25.75) {
+		t.Fatalf("interpolated CRF = %s, want 25.75", terseFloat(crfFromQ(got)))
+	}
+}
+
 func TestInterpolateQUsesBracketOutsideCurrentBounds(t *testing.T) {
 	search := crfSearch{
 		options: ProbeOptions{
@@ -944,7 +998,7 @@ func TestInterpolateQUsesBracketOutsideCurrentBounds(t *testing.T) {
 	}
 }
 
-func TestInterpolateQFallsBackForUnhelpfulScores(t *testing.T) {
+func TestInterpolateQFallsBackWithoutQualityFailureBracket(t *testing.T) {
 	search := crfSearch{
 		options: ProbeOptions{
 			FloorVMAF:         94,
@@ -952,7 +1006,7 @@ func TestInterpolateQFallsBackForUnhelpfulScores(t *testing.T) {
 		},
 		attempts: map[int]ProbeAttempt{
 			qFromCRF(37.5):  {CRF: 37.5, Score: 95.1, WorstSampleScore: 94.5, EncodedPercent: 48},
-			qFromCRF(53.75): {CRF: 53.75, Score: 96.0, WorstSampleScore: 90.0, EncodedPercent: 17},
+			qFromCRF(53.75): {CRF: 53.75, Score: 96.0, WorstSampleScore: 94.5, EncodedPercent: 17},
 		},
 	}
 	fallback := qFromCRF(45.5)
@@ -973,8 +1027,8 @@ func TestInterpolateQUsesPartialFailure(t *testing.T) {
 		},
 	}
 	got := search.interpolateQ(95, qFromCRF(45.5), qFromCRF(37.75), qFromCRF(53.5))
-	if got != qFromCRF(38) {
-		t.Fatalf("interpolated CRF = %s, want 38", terseFloat(crfFromQ(got)))
+	if got != qFromCRF(38.5) {
+		t.Fatalf("interpolated CRF = %s, want 38.5", terseFloat(crfFromQ(got)))
 	}
 }
 
