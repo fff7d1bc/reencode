@@ -682,7 +682,7 @@ func formatSelectedProbeAttemptLine(attempt ProbeAttempt) string {
 }
 
 func formatPartialProbeAttemptLine(attempt ProbeAttempt) string {
-	return fmt.Sprintf(">>> crf %5s  failed after %d/%d samples: %s",
+	return fmt.Sprintf(">>> crf %5s  failed after scoring %d of %d sample windows: %s",
 		terseFloat(attempt.CRF),
 		attempt.samplesDone,
 		attempt.samplesTotal,

@@ -1369,7 +1369,7 @@ func TestFormatPartialProbeAttemptLine(t *testing.T) {
 		samplesDone:   2,
 		samplesTotal:  10,
 	})
-	for _, want := range []string{"crf  45.5", "failed after 2/10 samples", "worst 92.80 below floor 94.00"} {
+	for _, want := range []string{"crf  45.5", "failed after scoring 2 of 10 sample windows", "worst 92.80 below floor 94.00"} {
 		if !contains(line, want) {
 			t.Fatalf("missing %q in %q", want, line)
 		}
