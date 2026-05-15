@@ -554,6 +554,16 @@ func TestParseEncodeNoAudioTranscodeFlag(t *testing.T) {
 	}
 }
 
+func TestParseEncodeVerboseFlagUpdatesProbeOptions(t *testing.T) {
+	opts, _, err := parseEncodeArgs([]string{"--verbose", "a.mkv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.Verbose || !opts.ProbeOptions.Verbose {
+		t.Fatalf("verbose flag not propagated: %+v", opts)
+	}
+}
+
 func TestParseProbeSkipNameFlag(t *testing.T) {
 	opts, files, err := parseProbeArgs([]string{"--skip-name", "[reencoded]", "--skip-name", "[reencoded-av1]", "a.mkv"})
 	if err != nil {

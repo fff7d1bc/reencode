@@ -131,7 +131,6 @@ func parseEncodeArgs(args []string) (EncodeOptions, []string, error) {
 	fs.BoolVar(&opts.Verbose, "verbose", false, "print extra details")
 	fs.Var(&optionalFloatValue{value: &opts.CRF, set: &opts.CRFSet}, "crf", "bypass probing and encode with this CRF")
 	fs.Var(&optionalFloatValue{value: &opts.FallbackCRF, set: &opts.FallbackCRFSet}, "fallback-crf", "use this CRF if probing fails")
-	opts.ProbeOptions.Verbose = opts.Verbose
 	sampleDuration := durationValue{value: opts.ProbeOptions.SampleDuration}
 	stallTimeout := durationValue{value: opts.ProbeOptions.StallTimeout}
 	fs.Var(&sampleDuration, "sample-duration", "advanced: duration of each sample")
@@ -142,6 +141,7 @@ func parseEncodeArgs(args []string) (EncodeOptions, []string, error) {
 	if opts.ProbeOptions.CheckWorkers < 1 {
 		return EncodeOptions{}, nil, fmt.Errorf("--check-workers must be at least 1")
 	}
+	opts.ProbeOptions.Verbose = opts.Verbose
 	opts.ProbeOptions.SampleDuration = sampleDuration.value
 	opts.ProbeOptions.StallTimeout = stallTimeout.value
 	opts.ProbeOptions.Progress = NewProgressDisplay(opts.ProbeOptions.NoProgress)
