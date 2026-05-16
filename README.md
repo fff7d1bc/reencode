@@ -119,18 +119,18 @@ of the probe cache identity.
 
 `--target-vmaf` and `--vmaf-floor` are separate checks.
 
-The reported `VMAF` is the duration-weighted mean across all probe samples. It
-must meet `--target-vmaf`, which defaults to `95`.
+The reported `avg vmaf` is the duration-weighted mean across all probe samples.
+It must meet `--target-vmaf`, which defaults to `95`.
 
-The reported `worst` is the lowest individual sample score. It must meet
+The reported `min vmaf` is the lowest individual sample score. It must meet
 `--vmaf-floor`, which defaults to `94`.
 
 Examples:
 
-- `VMAF 95.2, worst 94.4`: pass
-- `VMAF 95.2, worst 91.0`: fail, at least one section is too damaged
-- `VMAF 94.8, worst 94.5`: fail, samples are consistent but the average quality
-  is below target.
+- `avg vmaf 95.2, min vmaf 94.4`: pass
+- `avg vmaf 95.2, min vmaf 91.0`: fail, at least one section is too damaged
+- `avg vmaf 94.8, min vmaf 94.5`: fail, samples are consistent but the average
+  quality is below target.
 
 If exactly one sample misses the floor by less than `0.75` VMAF while the mean
 score and size cap pass, `reencode` checks two nearby windows at the same CRF.
@@ -234,9 +234,9 @@ the shared CRF are written back to the probe cache.
 
 Interactive terminals show compact stderr progress during sample encode, sample
 VMAF scoring, and final encode. During probing, completed CRF attempts are
-printed above the live progress line with VMAF, worst sample VMAF, encoded-size
-percentage, and predicted output size. The selected CRF is printed before the
-per-file summary.
+printed above the live progress line with average VMAF, minimum sample VMAF,
+encoded-size percentage, and predicted output size. The selected CRF is printed
+before the per-file summary.
 
 Successful probe results are cached under:
 

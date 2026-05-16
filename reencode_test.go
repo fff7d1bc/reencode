@@ -1349,17 +1349,53 @@ func TestProgressLineWidthAvoidsTerminalAutowrap(t *testing.T) {
 }
 
 func TestFormatProbeAttemptLine(t *testing.T) {
+	opts := defaultProbeOptions()
 	line := formatProbeAttemptLine(ProbeAttempt{
 		CRF:              32.25,
 		Score:            95.123,
 		WorstSampleScore: 94.456,
 		EncodedPercent:   72.4,
 		PredictedSize:    1500,
-	})
-	for _, want := range []string{"crf 32.25", "VMAF  95.12", "worst  94.46", "size   72%", "predicted 1.5 KiB"} {
+	}, 95, opts)
+	for _, want := range []string{"32.25", "95.12", "94.46", "72%", "1.5 KiB", "pass"} {
 		if !contains(line, want) {
 			t.Fatalf("missing %q in %q", want, line)
 		}
+	}
+	if contains(line, ">>>") {
+		t.Fatalf("attempt row should not use lifecycle prefix: %q", line)
+	}
+}
+
+func TestFormatProbeAttemptHeader(t *testing.T) {
+	header := formatProbeAttemptHeader()
+	for _, want := range []string{"crf", "avg vmaf", "min vmaf", "size", "predicted", "result"} {
+		if !contains(header, want) {
+			t.Fatalf("missing %q in %q", want, header)
+		}
+	}
+	if contains(header, "worst") {
+		t.Fatalf("header should use min vmaf wording: %q", header)
+	}
+}
+
+func TestProbeAttemptColumnsAlignWithHeader(t *testing.T) {
+	opts := defaultProbeOptions()
+	header := formatProbeAttemptHeader()
+	line := formatProbeAttemptLine(ProbeAttempt{
+		CRF:              37.5,
+		Score:            96.71,
+		WorstSampleScore: 96.03,
+		EncodedPercent:   6,
+		PredictedSize:    2403 * 1024 * 1024 / 10,
+	}, 95, opts)
+	wantHeader := "      crf   avg vmaf   min vmaf   size   predicted   result"
+	wantLine := "     37.5      96.71      96.03     6%   240.3 MiB   pass"
+	if header != wantHeader {
+		t.Fatalf("header = %q, want %q", header, wantHeader)
+	}
+	if line != wantLine {
+		t.Fatalf("line = %q, want %q", line, wantLine)
 	}
 }
 
@@ -1371,7 +1407,7 @@ func TestFormatSelectedProbeAttemptLine(t *testing.T) {
 		EncodedPercent:   80,
 		PredictedSize:    241 * 1024 * 1024,
 	})
-	for _, want := range []string{">>> selected crf  43.5", "VMAF  96.18", "worst  94.07", "size   80%", "predicted 241.0 MiB"} {
+	for _, want := range []string{">>> selected crf 43.5", "avg vmaf 96.18", "min vmaf 94.07", "size 80%", "predicted 241.0 MiB"} {
 		if !contains(line, want) {
 			t.Fatalf("missing %q in %q", want, line)
 		}
@@ -1401,7 +1437,7 @@ func TestPrintProbeHumanSaysEncodeWouldUseCRF(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := buf.String()
-	for _, want := range []string{"a.mkv: encode would use crf 24.25", "VMAF  96.57", "worst  94.02", "size   16%"} {
+	for _, want := range []string{"a.mkv: encode would use crf 24.25", "avg vmaf 96.57", "min vmaf 94.02", "size 16%"} {
 		if !contains(line, want) {
 			t.Fatalf("missing %q in %q", want, line)
 		}
@@ -1439,12 +1475,16 @@ func TestPrintProbeHumanExplainsAcceptedLocalLowSample(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := buf.String()
-	if !contains(text, "accepted one local low sample 93.90") {
+	if !contains(text, "local low sample confirmed") {
 		t.Fatalf("missing accepted local low sample explanation:\n%s", text)
+	}
+	if strings.Count(text, "\n") != 1 {
+		t.Fatalf("accepted local low sample should stay on one line:\n%s", text)
 	}
 }
 
-func TestFormatProbeAttemptLineDoesNotInlineAcceptedOutlier(t *testing.T) {
+func TestFormatProbeAttemptLineInlinesAcceptedOutlier(t *testing.T) {
+	opts := defaultProbeOptions()
 	line := formatProbeAttemptLine(ProbeAttempt{
 		CRF:              24.5,
 		Score:            95.1,
@@ -1453,30 +1493,43 @@ func TestFormatProbeAttemptLineDoesNotInlineAcceptedOutlier(t *testing.T) {
 		PredictedSize:    1500,
 		OutlierAccepted:  true,
 		OutlierScore:     93.9,
-	})
-	if contains(line, "local low sample") {
-		t.Fatalf("attempt line should not inline outlier confirmation: %q", line)
+	}, 95, opts)
+	if !contains(line, "pass, local low sample confirmed") {
+		t.Fatalf("attempt line should inline outlier confirmation: %q", line)
 	}
 }
 
-func TestFormatPartialProbeAttemptLine(t *testing.T) {
-	line := formatPartialProbeAttemptLine(ProbeAttempt{
-		CRF:           45.5,
-		partial:       true,
-		partialReason: "worst 92.80 below floor 94.00",
-		samplesDone:   2,
-		samplesTotal:  10,
-	})
-	for _, want := range []string{"crf  45.5", "failed after scoring 2 of 10 sample windows", "worst 92.80 below floor 94.00"} {
+func TestFormatProbeAttemptLineShowsPartialFailure(t *testing.T) {
+	opts := defaultProbeOptions()
+	line := formatProbeAttemptLine(ProbeAttempt{
+		CRF:              45.5,
+		partial:          true,
+		partialReason:    "min vmaf 92.80 below floor 94.00",
+		WorstSampleScore: 92.80,
+		samplesDone:      2,
+		samplesTotal:     10,
+	}, 95, opts)
+	for _, want := range []string{"45.5", "-", "92.80", "fail, scored 2/10 windows", "min vmaf 92.80 below floor 94.00"} {
 		if !contains(line, want) {
 			t.Fatalf("missing %q in %q", want, line)
 		}
 	}
 }
 
-func TestFormatOutlierAcceptedLine(t *testing.T) {
-	line := formatOutlierAcceptedLine(ProbeAttempt{OutlierScore: 93.9})
-	for _, want := range []string{"accepted one local low sample 93.90", "nearby windows passed the VMAF floor"} {
+func TestFormatProbeAttemptLineShowsCompletePartialMetrics(t *testing.T) {
+	opts := defaultProbeOptions()
+	line := formatProbeAttemptLine(ProbeAttempt{
+		CRF:              35.5,
+		Score:            95.20,
+		WorstSampleScore: 92.30,
+		EncodedPercent:   20,
+		PredictedSize:    650 * 1024 * 1024,
+		partial:          true,
+		partialReason:    "min vmaf 92.30 below floor 94.00",
+		samplesDone:      6,
+		samplesTotal:     6,
+	}, 95, opts)
+	for _, want := range []string{"35.5", "95.20", "92.30", "20%", "650.0 MiB", "fail, min vmaf 92.30 below floor 94.00"} {
 		if !contains(line, want) {
 			t.Fatalf("missing %q in %q", want, line)
 		}
@@ -1485,7 +1538,7 @@ func TestFormatOutlierAcceptedLine(t *testing.T) {
 
 func TestFormatTargetStopLine(t *testing.T) {
 	line := formatTargetStopLine(95, ProbeAttempt{CRF: 12.75, Score: 79.31, EncodedPercent: 95}, 90)
-	for _, want := range []string{"stopping CRF search", "crf 12.75", "VMAF 79.31 is below target 95.00", "size 95% is over max 90%", "lower CRFs would be larger"} {
+	for _, want := range []string{"stopping CRF search", "crf 12.75", "avg vmaf 79.31 is below target 95.00", "size 95% is over max 90%", "lower CRFs would be larger"} {
 		if !contains(line, want) {
 			t.Fatalf("missing %q in %q", want, line)
 		}
@@ -1568,30 +1621,21 @@ func TestFindForTargetKeepsBestWhenLaterAttemptMissesQualityAndSize(t *testing.T
 	}
 }
 
-func TestPrintOutlierAcceptedProgress(t *testing.T) {
-	var buf bytes.Buffer
-	progress := &ProgressDisplay{out: &buf}
-	search := crfSearch{options: ProbeOptions{Progress: progress}}
-	search.printOutlierAcceptedProgress(qFromCRF(24.5), ProbeAttempt{OutlierAccepted: true, OutlierScore: 93.9})
-	search.printOutlierAcceptedProgress(qFromCRF(24.5), ProbeAttempt{OutlierAccepted: true, OutlierScore: 93.9})
-	text := buf.String()
-	if !contains(text, "accepted one local low sample 93.90") {
-		t.Fatalf("accepted outlier progress not printed:\n%s", text)
-	}
-	if countOccurrences(text, "accepted one local low sample") != 1 {
-		t.Fatalf("accepted outlier progress should print once:\n%s", text)
-	}
-}
-
-func TestReportAttemptPrintsOncePerCRF(t *testing.T) {
+func TestReportAttemptPrintsHeaderAndRowOncePerCRF(t *testing.T) {
 	var buf bytes.Buffer
 	search := crfSearch{options: ProbeOptions{Progress: &ProgressDisplay{out: &buf}}}
 	attempt := ProbeAttempt{CRF: 12.75, Score: 95.39, WorstSampleScore: 93.69, EncodedPercent: 31, PredictedSize: 2764, OutlierAccepted: true, OutlierScore: 93.69}
-	search.reportAttempt(qFromCRF(attempt.CRF), attempt)
-	search.reportAttempt(qFromCRF(attempt.CRF), attempt)
+	search.reportAttempt(qFromCRF(attempt.CRF), attempt, 95)
+	search.reportAttempt(qFromCRF(attempt.CRF), attempt, 95)
 	text := buf.String()
-	if countOccurrences(text, ">>> crf 12.75") != 1 {
+	if countOccurrences(text, "crf") != 1 {
+		t.Fatalf("attempt header should print once:\n%s", text)
+	}
+	if countOccurrences(text, "12.75") != 1 {
 		t.Fatalf("attempt should print once:\n%s", text)
+	}
+	if contains(text, ">>> 12.75") {
+		t.Fatalf("attempt row should not use lifecycle prefix:\n%s", text)
 	}
 }
 
@@ -1606,7 +1650,7 @@ func TestSortedAttemptsSkipsPartialFailures(t *testing.T) {
 	}
 }
 
-func TestEvaluateReportsCachedAttempt(t *testing.T) {
+func TestEvaluateReturnsCachedAttemptWithoutReporting(t *testing.T) {
 	var buf bytes.Buffer
 	q := qFromCRF(12.75)
 	attempt := ProbeAttempt{CRF: 12.75, Score: 95.39, WorstSampleScore: 93.69, EncodedPercent: 31, PredictedSize: 2764}
@@ -1622,8 +1666,8 @@ func TestEvaluateReportsCachedAttempt(t *testing.T) {
 		t.Fatalf("attempt = %+v, want %+v", got, attempt)
 	}
 	text := buf.String()
-	if !contains(text, ">>> crf 12.75") {
-		t.Fatalf("cached attempt was not printed:\n%s", text)
+	if text != "" {
+		t.Fatalf("evaluate should not print before result status is known:\n%s", text)
 	}
 }
 
@@ -1631,14 +1675,18 @@ func TestRunReportsSelectedAttemptBeforeSelectedLine(t *testing.T) {
 	var buf bytes.Buffer
 	attempt := ProbeAttempt{CRF: 12.75, Score: 95.39, WorstSampleScore: 93.69, EncodedPercent: 31, PredictedSize: 2764, OutlierAccepted: true, OutlierScore: 93.69}
 	search := crfSearch{
-		options: ProbeOptions{Progress: &ProgressDisplay{out: &buf}},
+		options: defaultProbeOptions(),
 	}
+	search.options.Progress = &ProgressDisplay{out: &buf}
 	search.reportSelectedAttempt(attempt)
 	text := buf.String()
-	attemptPos := strings.Index(text, ">>> crf 12.75")
+	attemptPos := strings.Index(text, "    12.75")
 	selectedPos := strings.Index(text, ">>> selected crf 12.75")
 	if attemptPos < 0 || selectedPos < 0 || attemptPos > selectedPos {
 		t.Fatalf("attempt should be printed before selected line:\n%s", text)
+	}
+	if !contains(text, "pass, local low sample confirmed") {
+		t.Fatalf("selected outlier attempt should be explained in attempt row:\n%s", text)
 	}
 }
 
@@ -2039,7 +2087,7 @@ func TestEvaluateCRFPrintsCachedAcceptedLocalLowSample(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := buf.String()
-	if !contains(text, "accepted one local low sample 93.90") {
+	if !contains(text, "pass, local low sample confirmed") {
 		t.Fatalf("missing cached accepted local low sample explanation:\n%s", text)
 	}
 }

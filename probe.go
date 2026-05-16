@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -149,17 +150,14 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 
 func printProbeHuman(result ProbeResult) {
 	if result.Success {
-		fmt.Printf("%s: encode would use crf %5s  VMAF %6.2f  worst %6.2f  size %4.0f%%  predicted %s\n",
-			displayPath(result.File),
-			terseFloat(result.CRF),
-			result.Score,
-			result.WorstSampleScore,
-			result.EncodedPercent,
-			humanBytes(result.PredictedSize),
-		)
+		suffix := ""
 		if result.OutlierAccepted {
-			fmt.Println(formatOutlierAcceptedLine(probeAttemptFromResult(result)))
+			suffix = "local low sample confirmed"
 		}
+		fmt.Printf("%s: encode would use %s\n",
+			displayPath(result.File),
+			formatProbeSummaryLine("crf", result.CRF, result.Score, result.WorstSampleScore, result.EncodedPercent, result.PredictedSize, suffix),
+		)
 		return
 	}
 	fmt.Fprintf(os.Stderr, "%s: probe failed: %s\n", displayPath(result.File), result.Error)
@@ -251,14 +249,13 @@ func newProbeSession(opts ProbeOptions, info MediaInfo) (*probeSession, error) {
 	}
 
 	search := crfSearch{
-		info:                       info,
-		samples:                    samples,
-		options:                    opts,
-		encodedSamplePaths:         []string{},
-		attempts:                   map[int]ProbeAttempt{},
-		reportedAttempts:           map[int]bool{},
-		reportedOutlierAcceptances: map[int]bool{},
-		reportedTargetStops:        map[int]bool{},
+		info:                info,
+		samples:             samples,
+		options:             opts,
+		encodedSamplePaths:  []string{},
+		attempts:            map[int]ProbeAttempt{},
+		reportedAttempts:    map[int]bool{},
+		reportedTargetStops: map[int]bool{},
 	}
 	return &probeSession{result: result, search: search}, nil
 }
@@ -329,9 +326,10 @@ func (s *probeSession) EvaluateCRF(ctx context.Context, crf float64) (ProbeAttem
 		if err != nil {
 			return ProbeAttempt{}, err
 		}
-		s.search.printOutlierAcceptedProgress(q, attempt)
+		s.search.reportAttempt(q, attempt, s.search.options.TargetVMAF)
 		return attempt, nil
 	}
+	s.search.reportAttempt(q, attempt, s.search.options.TargetVMAF)
 	return attempt, nil
 }
 
@@ -340,14 +338,14 @@ func (s *probeSession) Close() {
 }
 
 type crfSearch struct {
-	info                       MediaInfo
-	samples                    []SampleFile
-	options                    ProbeOptions
-	attempts                   map[int]ProbeAttempt
-	reportedAttempts           map[int]bool
-	reportedOutlierAcceptances map[int]bool
-	reportedTargetStops        map[int]bool
-	encodedSamplePaths         []string
+	info                  MediaInfo
+	samples               []SampleFile
+	options               ProbeOptions
+	attempts              map[int]ProbeAttempt
+	reportedAttempts      map[int]bool
+	reportedTargetStops   map[int]bool
+	reportedAttemptHeader bool
+	encodedSamplePaths    []string
 }
 
 func (s *crfSearch) find(ctx context.Context) (ProbeAttempt, float64, error) {
@@ -402,6 +400,7 @@ func (s *crfSearch) findForTarget(ctx context.Context, target float64) (ProbeAtt
 				return ProbeAttempt{}, false, err
 			}
 		}
+		s.reportAttempt(q, attempt, target)
 		passScore := s.qualityOK(attempt, target)
 		if passScore && passSize {
 			best = attempt
@@ -488,7 +487,7 @@ func (s *crfSearch) interpolateAttemptQ(target float64, passQ int, pass ProbeAtt
 	}
 	// Floor misses are often the limiting constraint even when average VMAF is
 	// already above target. Partial attempts are created only by floor
-	// fail-fast, so use the worst sample rather than the partial mean.
+	// fail-fast, so use the minimum sample score rather than the partial mean.
 	if fail.partial || (fail.WorstSampleScore < s.options.FloorVMAF && !fail.OutlierAccepted) {
 		if q, ok := interpolateMetricQ(passQ, pass.WorstSampleScore, failQ, fail.WorstSampleScore, s.options.FloorVMAF); ok {
 			candidates = append(candidates, q)
@@ -542,6 +541,7 @@ func (s *crfSearch) refineBounds(ctx context.Context, target float64, best Probe
 			return ProbeAttempt{}, false, err
 		}
 	}
+	s.reportAttempt(nextQ, next, target)
 	if s.qualityOK(next, target) && next.EncodedPercent <= s.options.MaxEncodedPercent {
 		return next, true, nil
 	}
@@ -557,7 +557,6 @@ func (s *crfSearch) qualityOK(attempt ProbeAttempt, target float64) bool {
 
 func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 	if attempt, ok := s.attempts[q]; ok {
-		s.reportAttempt(q, attempt)
 		return attempt, nil
 	}
 	crf := crfFromQ(q)
@@ -597,7 +596,6 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 		if failed, reason := partialFloorFailure(sampleScores, s.options.FloorVMAF); failed {
 			attempt := s.partialAttempt(crf, scores, sampleScores, totalSampleBytes, totalEncodedBytes, totalSampleDuration, i+1, len(s.samples), reason)
 			s.attempts[q] = attempt
-			s.reportAttempt(q, attempt)
 			return attempt, nil
 		}
 	}
@@ -618,7 +616,6 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 		sampleScores:     sampleScores,
 	}
 	s.attempts[q] = attempt
-	s.reportAttempt(q, attempt)
 	return attempt, nil
 }
 
@@ -655,12 +652,12 @@ func partialFloorFailure(scores []float64, floor float64) (bool, string) {
 		return true, fmt.Sprintf("%d samples below floor %.2f", below, floor)
 	}
 	if below == 1 && worst < floor-outlierFloorTolerance {
-		return true, fmt.Sprintf("worst %.2f below floor %.2f", worst, floor)
+		return true, fmt.Sprintf("min vmaf %.2f below floor %.2f", worst, floor)
 	}
 	return false, ""
 }
 
-func (s *crfSearch) reportAttempt(q int, attempt ProbeAttempt) {
+func (s *crfSearch) reportAttempt(q int, attempt ProbeAttempt, target float64) {
 	if s.options.Progress == nil {
 		return
 	}
@@ -673,11 +670,11 @@ func (s *crfSearch) reportAttempt(q int, attempt ProbeAttempt) {
 	// Cached attempts, retries at a lower effective target, and final
 	// selection can all reuse a CRF without re-encoding it. Report each CRF once
 	// so the selected line is never the first visible result for that CRF.
-	if attempt.partial {
-		s.options.Progress.PrintLine(formatPartialProbeAttemptLine(attempt))
-	} else {
-		s.options.Progress.PrintLine(formatProbeAttemptLine(attempt))
+	if !s.reportedAttemptHeader {
+		s.options.Progress.PrintLine(formatProbeAttemptHeader())
+		s.reportedAttemptHeader = true
 	}
+	s.options.Progress.PrintLine(formatProbeAttemptLine(attempt, target, s.options))
 	s.reportedAttempts[q] = true
 }
 
@@ -686,11 +683,12 @@ func (s *crfSearch) reportSelectedAttempt(attempt ProbeAttempt) {
 		return
 	}
 	q := qFromCRF(attempt.CRF)
-	s.reportAttempt(q, attempt)
-	s.options.Progress.PrintLine(formatSelectedProbeAttemptLine(attempt))
-	if attempt.OutlierAccepted {
-		s.printOutlierAcceptedProgress(q, attempt)
+	target := attempt.EffectiveTarget
+	if target <= 0 {
+		target = s.options.TargetVMAF
 	}
+	s.reportAttempt(q, attempt, target)
+	s.options.Progress.PrintLine(formatSelectedProbeAttemptLine(attempt))
 }
 
 func (s *crfSearch) reportTargetStop(target float64, attempt ProbeAttempt) {
@@ -708,41 +706,105 @@ func (s *crfSearch) reportTargetStop(target float64, attempt ProbeAttempt) {
 	s.reportedTargetStops[q] = true
 }
 
-func formatProbeAttemptLine(attempt ProbeAttempt) string {
-	return formatProbeAttemptLineWithPrefix(">>>", attempt)
+func formatProbeAttemptHeader() string {
+	return strings.Join([]string{
+		fmt.Sprintf("    %5s", "crf"),
+		centerColumn("avg vmaf", 8),
+		centerColumn("min vmaf", 8),
+		centerColumn("size", 4),
+		centerColumn("predicted", 9),
+		"result",
+	}, "   ")
 }
 
-func formatSelectedProbeAttemptLine(attempt ProbeAttempt) string {
-	return formatProbeAttemptLineWithPrefix(">>> selected", attempt)
+func formatProbeAttemptLine(attempt ProbeAttempt, target float64, opts ProbeOptions) string {
+	avgVMAF := "-"
+	size := "-"
+	predicted := "-"
+	if !attempt.partial || attempt.samplesDone >= attempt.samplesTotal {
+		avgVMAF = fmt.Sprintf("%.2f", attempt.Score)
+		size = fmt.Sprintf("%.0f%%", attempt.EncodedPercent)
+		predicted = humanBytes(attempt.PredictedSize)
+	}
+	minVMAF := "-"
+	if attempt.WorstSampleScore > 0 {
+		minVMAF = fmt.Sprintf("%.2f", attempt.WorstSampleScore)
+	}
+	return strings.Join([]string{
+		fmt.Sprintf("    %5s", terseFloat(attempt.CRF)),
+		fmt.Sprintf("%8s", avgVMAF),
+		fmt.Sprintf("%8s", minVMAF),
+		fmt.Sprintf("%4s", size),
+		fmt.Sprintf("%9s", predicted),
+		formatProbeAttemptResult(attempt, target, opts),
+	}, "   ")
 }
 
-func formatPartialProbeAttemptLine(attempt ProbeAttempt) string {
-	return fmt.Sprintf(">>> crf %5s  failed after scoring %d of %d sample windows: %s",
-		terseFloat(attempt.CRF),
-		attempt.samplesDone,
-		attempt.samplesTotal,
-		attempt.partialReason,
-	)
-}
-
-func formatProbeAttemptLineWithPrefix(prefix string, attempt ProbeAttempt) string {
-	line := fmt.Sprintf("%s crf %5s  VMAF %6.2f  worst %6.2f  size %4.0f%%  predicted %s",
+func formatProbeSummaryLine(prefix string, crf float64, avgVMAF, minVMAF, sizePercent float64, predictedSize int64, suffix string) string {
+	line := fmt.Sprintf("%s %s, avg vmaf %.2f, min vmaf %.2f, size %.0f%%, predicted %s",
 		prefix,
-		terseFloat(attempt.CRF),
-		attempt.Score,
-		attempt.WorstSampleScore,
-		attempt.EncodedPercent,
-		humanBytes(attempt.PredictedSize),
+		terseFloat(crf),
+		avgVMAF,
+		minVMAF,
+		sizePercent,
+		humanBytes(predictedSize),
 	)
+	if suffix != "" {
+		line += ", " + suffix
+	}
 	return line
 }
 
-func formatOutlierAcceptedLine(attempt ProbeAttempt) string {
-	return fmt.Sprintf(">>> accepted one local low sample %.2f: nearby windows passed the VMAF floor", attempt.OutlierScore)
+func centerColumn(text string, width int) string {
+	if len(text) >= width {
+		return text
+	}
+	left := (width - len(text) + 1) / 2
+	right := width - len(text) - left
+	return strings.Repeat(" ", left) + text + strings.Repeat(" ", right)
+}
+
+func formatProbeAttemptResult(attempt ProbeAttempt, target float64, opts ProbeOptions) string {
+	if attempt.partial {
+		reason := attempt.partialReason
+		if attempt.samplesTotal > 0 && attempt.samplesDone < attempt.samplesTotal {
+			reason = fmt.Sprintf("scored %d/%d windows, %s", attempt.samplesDone, attempt.samplesTotal, reason)
+		}
+		return "fail, " + reason
+	}
+	var reasons []string
+	if attempt.Score < target {
+		reasons = append(reasons, "avg vmaf below target")
+	}
+	if attempt.WorstSampleScore < opts.FloorVMAF && !attempt.OutlierAccepted {
+		if attempt.OutlierChecked {
+			reasons = append(reasons, "local low sample not confirmed")
+		} else {
+			reasons = append(reasons, "min vmaf below floor")
+		}
+	}
+	if attempt.EncodedPercent > opts.MaxEncodedPercent {
+		reasons = append(reasons, "size over max")
+	}
+	if len(reasons) > 0 {
+		return "fail, " + strings.Join(reasons, " and ")
+	}
+	if attempt.OutlierAccepted {
+		return "pass, local low sample confirmed"
+	}
+	return "pass"
+}
+
+func formatSelectedProbeAttemptLine(attempt ProbeAttempt) string {
+	suffix := ""
+	if attempt.OutlierAccepted {
+		suffix = "local low sample confirmed"
+	}
+	return formatProbeSummaryLine(">>> selected crf", attempt.CRF, attempt.Score, attempt.WorstSampleScore, attempt.EncodedPercent, attempt.PredictedSize, suffix)
 }
 
 func formatTargetStopLine(target float64, attempt ProbeAttempt, maxEncodedPercent float64) string {
-	return fmt.Sprintf(">>> stopping CRF search at crf %s: VMAF %.2f is below target %.2f and size %.0f%% is over max %.0f%%, lower CRFs would be larger",
+	return fmt.Sprintf(">>> stopping CRF search at crf %s: avg vmaf %.2f is below target %.2f and size %.0f%% is over max %.0f%%, lower CRFs would be larger",
 		terseFloat(attempt.CRF),
 		attempt.Score,
 		target,
@@ -809,24 +871,7 @@ func (s *crfSearch) maybeConfirmOutlier(ctx context.Context, q int, target float
 	}
 	attempt.OutlierAccepted = allScoresAtLeast(attempt.OutlierNeighborScores, s.options.FloorVMAF)
 	s.attempts[q] = attempt
-	s.printOutlierAcceptedProgress(q, attempt)
 	return attempt, nil
-}
-
-func (s *crfSearch) printOutlierAcceptedProgress(q int, attempt ProbeAttempt) {
-	if !attempt.OutlierAccepted || s.options.Progress == nil {
-		return
-	}
-	if s.reportedOutlierAcceptances == nil {
-		s.reportedOutlierAcceptances = map[int]bool{}
-	}
-	if s.reportedOutlierAcceptances[q] {
-		return
-	}
-	// The same accepted attempt can be reached from cached results, group
-	// evaluation, and final selection. Print the explanation once per CRF.
-	s.options.Progress.PrintLine(formatOutlierAcceptedLine(attempt))
-	s.reportedOutlierAcceptances[q] = true
 }
 
 func (s *crfSearch) singleBorderlineOutlier(attempt ProbeAttempt) (int, bool) {

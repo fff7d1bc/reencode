@@ -138,14 +138,14 @@ func formatProgressLine(state ProgressState, width int) string {
 		scopeBar := progressBarForCount(state.ScopeDone, state.ScopeTotal, 18)
 		scopeText := strconv.Itoa(clampInt(state.ScopeDone, 0, state.ScopeTotal)) + "/" + strconv.Itoa(state.ScopeTotal)
 		activeText := progressText
-		fixed := ">>> " + scopeLabel + " " + scopeBar + " " + scopeText + " | " + label + " " + activeText
+		fixed := "    " + scopeLabel + " " + scopeBar + " " + scopeText + " | " + label + " " + activeText
 		if state.HaveSpeed {
 			fixed += " " + fmt.Sprintf("%.2fx", state.Speed)
 		}
 		fixed += " f=" + strconv.FormatInt(state.Frame, 10) + " "
 		return fixed + truncateMiddle(displayPath(state.File), width-visibleLen(fixed))
 	}
-	fixed := ">>> " + label + " " + bar + " " + progressText
+	fixed := "    " + label + " " + bar + " " + progressText
 	if state.HaveSpeed {
 		fixed += " " + fmt.Sprintf("%.2fx", state.Speed)
 	}
