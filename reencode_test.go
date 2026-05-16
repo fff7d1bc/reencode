@@ -813,8 +813,8 @@ func TestCollectEligibleInputsWithClassifierUsesFirstFatalByInputOrder(t *testin
 }
 
 func TestFormatEncodeSuccessLineUsesBasenames(t *testing.T) {
-	line := formatEncodeSuccessLine("/tmp/input/a.mp4", "/tmp/input/a_[e-av1].mkv", 37.25)
-	for _, want := range []string{">>> encoded a.mp4 -> a_[e-av1].mkv", "crf 37.25"} {
+	line := formatEncodeSuccessLine("/tmp/input/a.mp4", "/tmp/input/a_[e-av1].mkv", 37.25, 3_800_000_000, 193_000_000)
+	for _, want := range []string{">>> encoded a.mp4 -> a_[e-av1].mkv", "crf 37.25", "3.5 GiB -> 184.1 MiB"} {
 		if !contains(line, want) {
 			t.Fatalf("missing %q in %q", want, line)
 		}

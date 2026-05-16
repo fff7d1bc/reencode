@@ -101,6 +101,7 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf 
 	if err != nil {
 		return err
 	}
+	sourceSize := fileSize(file)
 	output := outputPathFor(file)
 	if _, err := os.Stat(output); err == nil && !opts.Overwrite {
 		return fmt.Errorf("output already exists: %s", displayPath(output))
@@ -163,15 +164,16 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf 
 	if err := appendLogFile(opts.LogFile, file, output); err != nil {
 		return err
 	}
+	outputSize := fileSize(output)
 	if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("encoded output is ready but removing source failed: %w", err)
 	}
-	fmt.Fprintln(os.Stderr, formatEncodeSuccessLine(file, output, crf))
+	fmt.Fprintln(os.Stderr, formatEncodeSuccessLine(file, output, crf, sourceSize, outputSize))
 	return nil
 }
 
-func formatEncodeSuccessLine(input, output string, crf float64) string {
-	return fmt.Sprintf(">>> encoded %s -> %s with crf %s", displayPath(input), displayPath(output), terseFloat(crf))
+func formatEncodeSuccessLine(input, output string, crf float64, sourceSize, outputSize int64) string {
+	return fmt.Sprintf(">>> encoded %s -> %s with crf %s, %s -> %s", displayPath(input), displayPath(output), terseFloat(crf), humanBytes(sourceSize), humanBytes(outputSize))
 }
 
 type groupInput struct {
