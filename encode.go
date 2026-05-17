@@ -173,7 +173,14 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf 
 }
 
 func formatEncodeSuccessLine(input, output string, crf float64, sourceSize, outputSize int64) string {
-	return fmt.Sprintf(">>> encoded %s -> %s with crf %s, %s -> %s", displayPath(input), displayPath(output), terseFloat(crf), humanBytes(sourceSize), humanBytes(outputSize))
+	return fmt.Sprintf(">>> encoded %s, crf %s, %s (%s of %s)", displayPath(output), terseFloat(crf), humanBytes(outputSize), formatPercentOf(outputSize, sourceSize), humanBytes(sourceSize))
+}
+
+func formatPercentOf(part, whole int64) string {
+	if whole <= 0 {
+		return "?%"
+	}
+	return fmt.Sprintf("%.0f%%", 100*float64(part)/float64(whole))
 }
 
 // Output metadata is written while ffmpeg creates the MKV, before the final

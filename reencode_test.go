@@ -814,13 +814,22 @@ func TestCollectEligibleInputsWithClassifierUsesFirstFatalByInputOrder(t *testin
 
 func TestFormatEncodeSuccessLineUsesBasenames(t *testing.T) {
 	line := formatEncodeSuccessLine("/tmp/input/a.mp4", "/tmp/input/a_[e-av1].mkv", 37.25, 3_800_000_000, 193_000_000)
-	for _, want := range []string{">>> encoded a.mp4 -> a_[e-av1].mkv", "crf 37.25", "3.5 GiB -> 184.1 MiB"} {
+	for _, want := range []string{">>> encoded a_[e-av1].mkv", "crf 37.25", "184.1 MiB", "5% of 3.5 GiB"} {
 		if !contains(line, want) {
 			t.Fatalf("missing %q in %q", want, line)
 		}
 	}
+	if contains(line, "a.mp4 ->") {
+		t.Fatalf("success line should not repeat input path: %q", line)
+	}
 	if contains(line, "/tmp/input/") {
 		t.Fatalf("success line should show basenames only: %q", line)
+	}
+}
+
+func TestFormatPercentOfHandlesMissingSourceSize(t *testing.T) {
+	if got := formatPercentOf(100, 0); got != "?%" {
+		t.Fatalf("percent = %q, want ?%%", got)
 	}
 }
 
