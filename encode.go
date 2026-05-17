@@ -87,16 +87,16 @@ func encodeFFmpegRequirements(opts EncodeOptions) ffmpegRequirements {
 
 func encodeOne(ctx context.Context, opts EncodeOptions, file string) error {
 	if opts.CRFSet {
-		return encodeOneWithCRF(ctx, opts, file, opts.CRF)
+		return encodeOneWithCRF(ctx, opts, file, opts.CRF, nil)
 	}
-	crf, err := chooseCRF(ctx, opts, file)
+	crf, probe, err := chooseCRF(ctx, opts, file)
 	if err != nil {
 		return err
 	}
-	return encodeOneWithCRF(ctx, opts, file, crf)
+	return encodeOneWithCRF(ctx, opts, file, crf, probe)
 }
 
-func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf float64) error {
+func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf float64, probe *ProbeResult) error {
 	info, err := probeInputMedia(file)
 	if err != nil {
 		return err
@@ -124,7 +124,7 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf 
 	args = append(args, "-c", "copy")
 	args = append(args, audioArgs...)
 	args = append(args, video.ffmpegArgs("-c:v:0")...)
-	args = append(args, "-metadata", "REENCODED_DETAILS="+video.metadata())
+	args = append(args, reencodeMetadataArgs(video, opts.ProbeOptions, probe)...)
 	args = append(args, tmp)
 
 	if opts.DryRun {
@@ -176,6 +176,45 @@ func formatEncodeSuccessLine(input, output string, crf float64, sourceSize, outp
 	return fmt.Sprintf(">>> encoded %s -> %s with crf %s, %s -> %s", displayPath(input), displayPath(output), terseFloat(crf), humanBytes(sourceSize), humanBytes(outputSize))
 }
 
+// Output metadata is written while ffmpeg creates the MKV, before the final
+// file exists. Keep these tags limited to settings known up front plus probe
+// scores that were already measured for the selected CRF.
+type metadataTag struct {
+	key   string
+	value string
+}
+
+func reencodeMetadataArgs(video VideoArgs, opts ProbeOptions, probe *ProbeResult) []string {
+	tags := []metadataTag{
+		{"REENCODE_OUTPUT_CODEC", "av1"},
+		{"REENCODE_ENCODER", video.Codec},
+		{"REENCODE_PRESET", video.Preset},
+		{"REENCODE_CRF", terseFloat(video.CRF)},
+		{"REENCODE_PIX_FMT", video.PixFmt},
+	}
+	if probe != nil && probe.Success {
+		target := probe.TargetVMAF
+		if target == 0 {
+			target = opts.TargetVMAF
+		}
+		floor := probe.FloorVMAF
+		if floor == 0 {
+			floor = opts.FloorVMAF
+		}
+		tags = append(tags,
+			metadataTag{"REENCODE_TARGET_VMAF", terseFloat(target)},
+			metadataTag{"REENCODE_VMAF_FLOOR", terseFloat(floor)},
+			metadataTag{"REENCODE_AVG_VMAF", fmt.Sprintf("%.2f", probe.Score)},
+			metadataTag{"REENCODE_MIN_VMAF", fmt.Sprintf("%.2f", probe.WorstSampleScore)},
+		)
+	}
+	args := make([]string, 0, len(tags)*2)
+	for _, tag := range tags {
+		args = append(args, "-metadata", tag.key+"="+tag.value)
+	}
+	return args
+}
+
 type groupInput struct {
 	File    string
 	Info    MediaInfo
@@ -193,7 +232,7 @@ func encodeGroup(ctx context.Context, opts EncodeOptions, eligible []eligibleInp
 
 	if opts.CRFSet {
 		fmt.Fprintf(os.Stderr, "group: --crf=%s, bypassing probing for %d files\n", terseFloat(opts.CRF), len(inputs))
-		return encodeGroupWithCRF(ctx, opts, inputs, opts.CRF)
+		return encodeGroupWithCRF(ctx, opts, inputs, opts.CRF, false)
 	}
 
 	for i := range inputs {
@@ -214,7 +253,7 @@ func encodeGroup(ctx context.Context, opts EncodeOptions, eligible []eligibleInp
 		inputs[i].Session = session
 		inputs[i].Result = result
 		inputs[i].Cache = cache
-		fmt.Fprintf(os.Stderr, "%s: individual CRF %s, VMAF %.2f (worst %.2f), %.0f%%\n",
+		fmt.Fprintf(os.Stderr, "%s: individual CRF %s, avg vmaf %.2f (min vmaf %.2f), %.0f%%\n",
 			displayPath(inputs[i].File),
 			terseFloat(result.CRF),
 			result.Score,
@@ -232,7 +271,7 @@ func encodeGroup(ctx context.Context, opts EncodeOptions, eligible []eligibleInp
 	for _, warning := range warnings {
 		fmt.Fprintln(os.Stderr, warning)
 	}
-	return encodeGroupWithCRF(ctx, opts, inputs, crf)
+	return encodeGroupWithCRF(ctx, opts, inputs, crf, true)
 }
 
 func persistGroupProbeCaches(ctx context.Context, opts ProbeOptions, inputs []groupInput) {
@@ -324,35 +363,63 @@ func groupFallbackOrError(ctx context.Context, opts EncodeOptions, inputs []grou
 	}
 	if opts.FallbackCRFSet {
 		fmt.Fprintf(os.Stderr, "group: probing failed, using --fallback-crf=%s for all files: %v\n", terseFloat(opts.FallbackCRF), probeErr)
-		return encodeGroupWithCRF(ctx, opts, inputs, opts.FallbackCRF)
+		return encodeGroupWithCRF(ctx, opts, inputs, opts.FallbackCRF, false)
 	}
 	return probeErr
 }
 
-func encodeGroupWithCRF(ctx context.Context, opts EncodeOptions, inputs []groupInput, crf float64) error {
+func encodeGroupWithCRF(ctx context.Context, opts EncodeOptions, inputs []groupInput, crf float64, probeMetadata bool) error {
 	for i, input := range inputs {
 		fmt.Fprintf(os.Stderr, ">>> Group reencoding (%d of %d) %s with CRF %s ...\n", i+1, len(inputs), displayPath(input.File), terseFloat(crf))
-		if err := encodeOneWithCRF(ctx, opts, input.File, crf); err != nil {
+		var probe *ProbeResult
+		if probeMetadata {
+			probe = groupProbeMetadata(input, opts.ProbeOptions, crf)
+		}
+		if err := encodeOneWithCRF(ctx, opts, input.File, crf, probe); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func chooseCRF(ctx context.Context, opts EncodeOptions, file string) (float64, error) {
+func groupProbeMetadata(input groupInput, opts ProbeOptions, crf float64) *ProbeResult {
+	if input.Session == nil {
+		return nil
+	}
+	attempt, ok := input.Session.search.attempts[qFromCRF(crf)]
+	if !ok || attempt.partial || !groupQualityOK(attempt, opts) {
+		return nil
+	}
+	return &ProbeResult{
+		File:             input.File,
+		Success:          true,
+		CRF:              attempt.CRF,
+		TargetVMAF:       opts.TargetVMAF,
+		FloorVMAF:        opts.FloorVMAF,
+		Score:            attempt.Score,
+		WorstSampleScore: attempt.WorstSampleScore,
+		EncodedPercent:   attempt.EncodedPercent,
+		PredictedSize:    attempt.PredictedSize,
+		OutlierChecked:   attempt.OutlierChecked,
+		OutlierAccepted:  attempt.OutlierAccepted,
+		OutlierScore:     attempt.OutlierScore,
+	}
+}
+
+func chooseCRF(ctx context.Context, opts EncodeOptions, file string) (float64, *ProbeResult, error) {
 	result, session, cache, err := probeFileSession(ctx, opts.ProbeOptions, file)
 	if session != nil {
 		defer session.Close()
 	}
 	if err == nil && result.Success {
-		return result.CRF, nil
+		return result.CRF, &result, nil
 	}
 	persistProbeSessionCache(ctx, opts.ProbeOptions, cache, session, result)
 	if opts.FallbackCRFSet {
 		fmt.Fprintf(os.Stderr, "%s: probe failed, falling back to CRF %s: %v\n", displayPath(file), terseFloat(opts.FallbackCRF), err)
-		return opts.FallbackCRF, nil
+		return opts.FallbackCRF, nil, nil
 	}
-	return 0, fmt.Errorf("probe failed and --fallback-crf is not set: %w", err)
+	return 0, nil, fmt.Errorf("probe failed and --fallback-crf is not set: %w", err)
 }
 
 func streamArgs(info MediaInfo, opts EncodeOptions) ([]string, []string, []StreamInfo) {

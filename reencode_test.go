@@ -824,6 +824,52 @@ func TestFormatEncodeSuccessLineUsesBasenames(t *testing.T) {
 	}
 }
 
+func TestReencodeMetadataArgsIncludeStructuredProbeTags(t *testing.T) {
+	video := VideoArgs{Codec: "libsvtav1", Preset: "4", CRF: 31.25, PixFmt: "yuv420p10le"}
+	opts := defaultProbeOptions()
+	probe := &ProbeResult{
+		Success:          true,
+		TargetVMAF:       95,
+		FloorVMAF:        94,
+		Score:            95.78,
+		WorstSampleScore: 94.02,
+	}
+	args := strings.Join(reencodeMetadataArgs(video, opts, probe), " ")
+	for _, want := range []string{
+		"-metadata REENCODE_OUTPUT_CODEC=av1",
+		"-metadata REENCODE_ENCODER=libsvtav1",
+		"-metadata REENCODE_PRESET=4",
+		"-metadata REENCODE_CRF=31.25",
+		"-metadata REENCODE_PIX_FMT=yuv420p10le",
+		"-metadata REENCODE_TARGET_VMAF=95",
+		"-metadata REENCODE_VMAF_FLOOR=94",
+		"-metadata REENCODE_AVG_VMAF=95.78",
+		"-metadata REENCODE_MIN_VMAF=94.02",
+	} {
+		if !contains(args, want) {
+			t.Fatalf("missing %q in %q", want, args)
+		}
+	}
+	if contains(args, "REENCODED_DETAILS") {
+		t.Fatalf("legacy metadata tag should not be emitted: %q", args)
+	}
+}
+
+func TestReencodeMetadataArgsOmitProbeTagsWithoutSuccessfulProbe(t *testing.T) {
+	video := VideoArgs{Codec: "libsvtav1", Preset: "4", CRF: 31.25, PixFmt: "yuv420p10le"}
+	args := strings.Join(reencodeMetadataArgs(video, defaultProbeOptions(), nil), " ")
+	for _, want := range []string{"REENCODE_OUTPUT_CODEC=av1", "REENCODE_CRF=31.25"} {
+		if !contains(args, want) {
+			t.Fatalf("missing %q in %q", want, args)
+		}
+	}
+	for _, unwanted := range []string{"REENCODE_TARGET_VMAF", "REENCODE_VMAF_FLOOR", "REENCODE_AVG_VMAF", "REENCODE_MIN_VMAF"} {
+		if contains(args, unwanted) {
+			t.Fatalf("unexpected probe tag %q in %q", unwanted, args)
+		}
+	}
+}
+
 func TestNoVideoStreamErrorIsTyped(t *testing.T) {
 	err := fmt.Errorf("image.png: %w", errNoVideoStream)
 	if !errors.Is(err, errNoVideoStream) {
@@ -2089,6 +2135,36 @@ func TestEvaluateCRFPrintsCachedAcceptedLocalLowSample(t *testing.T) {
 	text := buf.String()
 	if !contains(text, "pass, local low sample confirmed") {
 		t.Fatalf("missing cached accepted local low sample explanation:\n%s", text)
+	}
+}
+
+func TestGroupProbeMetadataUsesVerifiedAttempt(t *testing.T) {
+	opts := defaultProbeOptions()
+	input := groupInput{
+		File: "a.mkv",
+		Session: &probeSession{search: crfSearch{attempts: map[int]ProbeAttempt{
+			qFromCRF(30): {CRF: 30, Score: 95.4, WorstSampleScore: 94.5, EncodedPercent: 60},
+		}}},
+	}
+	got := groupProbeMetadata(input, opts, 30)
+	if got == nil {
+		t.Fatal("expected group probe metadata")
+	}
+	if got.CRF != 30 || got.Score != 95.4 || got.WorstSampleScore != 94.5 || !got.Success {
+		t.Fatalf("bad group probe metadata: %+v", got)
+	}
+}
+
+func TestGroupProbeMetadataRejectsFailedAttempt(t *testing.T) {
+	opts := defaultProbeOptions()
+	input := groupInput{
+		File: "a.mkv",
+		Session: &probeSession{search: crfSearch{attempts: map[int]ProbeAttempt{
+			qFromCRF(30): {CRF: 30, Score: 95.4, WorstSampleScore: 93.5, EncodedPercent: 60},
+		}}},
+	}
+	if got := groupProbeMetadata(input, opts, 30); got != nil {
+		t.Fatalf("failed group attempt should not become metadata: %+v", got)
 	}
 }
 

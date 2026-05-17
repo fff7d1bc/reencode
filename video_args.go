@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"time"
@@ -70,10 +69,6 @@ func (v VideoArgs) ffmpegCRF() float64 {
 		return 63
 	}
 	return v.CRF
-}
-
-func (v VideoArgs) metadata() string {
-	return fmt.Sprintf("ffmpeg %s preset %s crf %s", v.Codec, v.Preset, terseFloat(v.CRF))
 }
 
 func terseFloat(v float64) string {

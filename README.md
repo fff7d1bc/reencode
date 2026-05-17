@@ -40,6 +40,10 @@ FLAC audio streams are converted to Opus at `256000` bps to save space while
 other audio codecs are copied. Use `--no-audio-transcode` to copy all audio
 streams unchanged.
 
+Final outputs include `REENCODE_*` MKV metadata with the selected codec,
+encoder, preset, CRF, pixel format, and successful probe VMAF scores when a
+probe result selected the CRF.
+
 Outputs are written next to the input:
 
 ```text
