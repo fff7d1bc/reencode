@@ -14,7 +14,7 @@ GOPATH := $(PLATFORM_BUILD_DIR)/gopath
 GOTMPDIR := $(PLATFORM_BUILD_DIR)/tmp
 GOTELEMETRYDIR := $(PLATFORM_BUILD_DIR)/telemetry
 GOENV := off
-GOFLAGS := -modcacherw
+GOFLAGS := -modcacherw -buildvcs=false
 
 export GOCACHE
 export GOMODCACHE
