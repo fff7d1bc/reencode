@@ -3,8 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strings"
+	"time"
+)
+
+var (
+	executeFinalFFmpeg = runFFmpeg
+	inspectFinalMedia  = probeMediaContext
 )
 
 type EncodeOptions struct {
@@ -129,7 +136,7 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 	for _, stream := range dropped {
 		fmt.Fprintf(os.Stderr, "%s: dropping unsupported stream %d (%s)\n", displayPath(file), stream.Index, stream.Type)
 	}
-	args := []string{"-y", "-i", file}
+	args := []string{"-y", "-xerror", "-i", file}
 	args = append(args, mapArgs...)
 	args = append(args, "-c", "copy")
 	args = append(args, audioArgs...)
@@ -147,7 +154,7 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 			_ = os.Remove(tmp)
 		}
 	}()
-	if _, err := runFFmpeg(ctx, FFMpegRun{
+	if _, err := executeFinalFFmpeg(ctx, FFMpegRun{
 		Role:             "final encode",
 		File:             file,
 		CRF:              crf,
@@ -159,7 +166,7 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 	}); err != nil {
 		return err
 	}
-	if err := validateOutput(tmp); err != nil {
+	if err := validateOutput(ctx, tmp, info, opts); err != nil {
 		return err
 	}
 	if err := verifySourceSnapshot(file, input.Source); err != nil {
@@ -510,13 +517,94 @@ func streamArgs(info MediaInfo, opts EncodeOptions) ([]string, []string, []Strea
 	return mapArgs, audioArgs, dropped
 }
 
-func validateOutput(path string) error {
-	info, err := probeMedia(path)
+func validateOutput(ctx context.Context, path string, source MediaInfo, opts EncodeOptions) error {
+	info, err := inspectFinalMedia(ctx, path)
 	if err != nil {
 		return fmt.Errorf("validate output: %w", err)
 	}
-	if !info.HasVideo() {
-		return fmt.Errorf("validate output: no video stream found")
+	if err := validateOutputInfo(source, info, opts); err != nil {
+		return fmt.Errorf("validate output: %w", err)
 	}
 	return nil
+}
+
+func validateOutputInfo(source, output MediaInfo, opts EncodeOptions) error {
+	if !output.HasVideo() {
+		return fmt.Errorf("no video stream found")
+	}
+	if !strings.EqualFold(output.VideoCodec, "av1") {
+		return fmt.Errorf("primary video codec is %s, want av1", output.VideoCodec)
+	}
+	if output.Width != source.Width || output.Height != source.Height {
+		return fmt.Errorf("primary video dimensions are %dx%d, want %dx%d", output.Width, output.Height, source.Width, source.Height)
+	}
+
+	durationTolerance := 2 * time.Second
+	if relative := source.Duration / 100; relative > durationTolerance {
+		durationTolerance = relative
+	}
+	if durationDifference(source.Duration, output.Duration) > durationTolerance {
+		return fmt.Errorf("duration is %s, want %s within %s", output.Duration, source.Duration, durationTolerance)
+	}
+	frameTolerance := int64(math.Ceil(source.FPS * 2))
+	if relative := int64(math.Ceil(float64(source.TotalFrames) / 100)); relative > frameTolerance {
+		frameTolerance = relative
+	}
+	if frameTolerance < 1 {
+		frameTolerance = 1
+	}
+	if int64Difference(source.TotalFrames, output.TotalFrames) > frameTolerance {
+		return fmt.Errorf("estimated frame count is %d, want %d within %d", output.TotalFrames, source.TotalFrames, frameTolerance)
+	}
+
+	expected := expectedOutputStreams(source, opts)
+	if len(output.Streams) != len(expected) {
+		return fmt.Errorf("stream count is %d, want %d", len(output.Streams), len(expected))
+	}
+	for i := range expected {
+		got, want := output.Streams[i], expected[i]
+		if got.Type != want.Type {
+			return fmt.Errorf("stream %d type is %s, want %s", i, got.Type, want.Type)
+		}
+		if !strings.EqualFold(got.CodecName, want.CodecName) {
+			return fmt.Errorf("stream %d codec is %s, want %s", i, got.CodecName, want.CodecName)
+		}
+	}
+	return nil
+}
+
+func expectedOutputStreams(source MediaInfo, opts EncodeOptions) []StreamInfo {
+	var expected []StreamInfo
+	for _, stream := range source.Streams {
+		want := stream
+		switch stream.Type {
+		case "video":
+			if stream.Index == source.VideoIndex {
+				want.CodecName = "av1"
+			}
+		case "audio":
+			if !opts.NoAudioTranscode && strings.EqualFold(stream.CodecName, "flac") {
+				want.CodecName = "opus"
+			}
+		case "subtitle", "attachment":
+		default:
+			continue
+		}
+		expected = append(expected, want)
+	}
+	return expected
+}
+
+func durationDifference(a, b time.Duration) time.Duration {
+	if a < b {
+		return b - a
+	}
+	return a - b
+}
+
+func int64Difference(a, b int64) int64 {
+	if a < b {
+		return b - a
+	}
+	return a - b
 }

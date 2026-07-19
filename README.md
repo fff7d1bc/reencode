@@ -35,6 +35,11 @@ For each eligible input, `reencode` probes quality, selects a CRF, encodes
 directly from the original file to an MKV output, validates the result, and then
 removes the source.
 
+Final ffmpeg decoding and filtering errors are fatal. Before publishing,
+`reencode` verifies AV1 video, source dimensions, mapped stream layout, and
+duration and estimated frame counts within the greater of one percent or two
+seconds. Validation failure keeps the source and removes the unfinished output.
+
 Final encode keeps source stream order and copies non-video streams by default.
 FLAC audio streams are converted to Opus at `256000` bps to save space while
 other audio codecs are copied. Use `--no-audio-transcode` to copy all audio

@@ -359,6 +359,171 @@ func TestAcquireOutputCommitLockRejectsContention(t *testing.T) {
 	}
 }
 
+func TestValidateOutputInfoAcceptsExpectedMedia(t *testing.T) {
+	source := validationSourceInfo()
+	output := validationOutputInfo()
+	if err := validateOutputInfo(source, output, EncodeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateOutputInfoRejectsContractMismatches(t *testing.T) {
+	source := validationSourceInfo()
+	tests := []struct {
+		name   string
+		mutate func(*MediaInfo)
+		want   string
+	}{
+		{"codec", func(info *MediaInfo) { info.VideoCodec = "h264" }, "want av1"},
+		{"dimensions", func(info *MediaInfo) { info.Width = 1280 }, "dimensions"},
+		{"duration", func(info *MediaInfo) { info.Duration -= 3 * time.Second }, "duration"},
+		{"frames", func(info *MediaInfo) { info.TotalFrames -= 49 }, "frame count"},
+		{"stream count", func(info *MediaInfo) { info.Streams = info.Streams[:1] }, "stream count"},
+		{"stream type", func(info *MediaInfo) { info.Streams[1].Type = "subtitle" }, "type"},
+		{"stream codec", func(info *MediaInfo) { info.Streams[1].CodecName = "flac" }, "want opus"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := validationOutputInfo()
+			test.mutate(&output)
+			if err := validateOutputInfo(source, output, EncodeOptions{}); err == nil || !contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateOutputInfoUsesBalancedTolerances(t *testing.T) {
+	source := validationSourceInfo()
+	output := validationOutputInfo()
+	output.Duration -= 2 * time.Second
+	output.TotalFrames -= 48
+	if err := validateOutputInfo(source, output, EncodeOptions{}); err != nil {
+		t.Fatalf("boundary should pass: %v", err)
+	}
+}
+
+func TestEncodeOneWithCRFValidatesBeforeRemovingSource(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(inputPath, []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := eligibleInput{
+		File:        inputPath,
+		Info:        validationSourceInfo(),
+		Source:      snapshotSource(info),
+		Output:      outputPathFor(inputPath),
+		Destination: destinationSnapshot{},
+	}
+	originalRun := executeFinalFFmpeg
+	originalInspect := inspectFinalMedia
+	defer func() {
+		executeFinalFFmpeg = originalRun
+		inspectFinalMedia = originalInspect
+	}()
+	var finalArgs []string
+	executeFinalFFmpeg = func(_ context.Context, run FFMpegRun) (FFMpegResult, error) {
+		finalArgs = append([]string(nil), run.Args...)
+		return FFMpegResult{}, os.WriteFile(run.Args[len(run.Args)-1], []byte("encoded"), 0o644)
+	}
+	inspectFinalMedia = func(context.Context, string) (MediaInfo, error) {
+		return validationOutputInfo(), nil
+	}
+	if err := encodeOneWithCRF(context.Background(), EncodeOptions{ProbeOptions: defaultProbeOptions()}, input, 32, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(inputPath); !os.IsNotExist(err) {
+		t.Fatalf("source should be removed: %v", err)
+	}
+	if _, err := os.Stat(input.Output); err != nil {
+		t.Fatalf("output missing: %v", err)
+	}
+	if !contains(strings.Join(finalArgs, " "), "-y -xerror -i "+inputPath) {
+		t.Fatalf("final args do not contain -xerror before input: %q", finalArgs)
+	}
+}
+
+func TestEncodeOneWithCRFKeepsSourceWhenValidationFails(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(inputPath, []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(inputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := eligibleInput{File: inputPath, Info: validationSourceInfo(), Source: snapshotSource(info), Output: outputPathFor(inputPath)}
+	originalRun := executeFinalFFmpeg
+	originalInspect := inspectFinalMedia
+	defer func() {
+		executeFinalFFmpeg = originalRun
+		inspectFinalMedia = originalInspect
+	}()
+	executeFinalFFmpeg = func(_ context.Context, run FFMpegRun) (FFMpegResult, error) {
+		return FFMpegResult{}, os.WriteFile(run.Args[len(run.Args)-1], []byte("encoded"), 0o644)
+	}
+	inspectFinalMedia = func(context.Context, string) (MediaInfo, error) {
+		output := validationOutputInfo()
+		output.VideoCodec = "h264"
+		return output, nil
+	}
+	if err := encodeOneWithCRF(context.Background(), EncodeOptions{ProbeOptions: defaultProbeOptions()}, input, 32, nil); err == nil {
+		t.Fatal("validation failure should fail encode")
+	}
+	if _, err := os.Stat(inputPath); err != nil {
+		t.Fatalf("source should remain: %v", err)
+	}
+	if _, err := os.Stat(input.Output); !os.IsNotExist(err) {
+		t.Fatalf("final output should not be published: %v", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, ".*.tmp.mkv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temporary outputs remain: %v", matches)
+	}
+}
+
+func validationSourceInfo() MediaInfo {
+	return MediaInfo{
+		Duration:    100 * time.Second,
+		FPS:         24,
+		TotalFrames: 2400,
+		VideoIndex:  0,
+		VideoCodec:  "h264",
+		Width:       1920,
+		Height:      1080,
+		Streams: []StreamInfo{
+			{Index: 0, Type: "video", CodecName: "h264"},
+			{Index: 1, Type: "audio", CodecName: "flac"},
+			{Index: 2, Type: "data", CodecName: "bin_data"},
+		},
+	}
+}
+
+func validationOutputInfo() MediaInfo {
+	return MediaInfo{
+		Duration:    100 * time.Second,
+		FPS:         24,
+		TotalFrames: 2400,
+		VideoIndex:  0,
+		VideoCodec:  "av1",
+		Width:       1920,
+		Height:      1080,
+		Streams: []StreamInfo{
+			{Index: 0, Type: "video", CodecName: "av1"},
+			{Index: 1, Type: "audio", CodecName: "opus"},
+		},
+	}
+}
+
 func TestReserveFinalTempPathIsUniqueAndHidden(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "movie.mp4")
