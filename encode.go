@@ -58,6 +58,9 @@ func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) i
 	}
 	if opts.GroupCRF {
 		if err := encodeGroup(ctx, opts, eligibility.Actionable); err != nil {
+			if ctx.Err() != nil {
+				return 130
+			}
 			fmt.Fprintf(os.Stderr, "group: %v\n", err)
 			return 1
 		}
@@ -299,6 +302,9 @@ func encodeGroup(ctx context.Context, opts EncodeOptions, eligible []eligibleInp
 	}
 
 	for i := range inputs {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err := verifySourceSnapshot(inputs[i].File, inputs[i].Source); err != nil {
 			return err
 		}
@@ -422,11 +428,12 @@ func groupQualityOK(attempt ProbeAttempt, opts ProbeOptions) bool {
 }
 
 func groupFallbackOrError(ctx context.Context, opts EncodeOptions, inputs []groupInput, probeErr error) error {
-	if ctx.Err() == nil {
-		// Persist partial successful probes before falling back so a retry can
-		// reuse the expensive CRF attempts that already completed.
-		persistGroupProbeCaches(ctx, opts.ProbeOptions, inputs)
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
+	// Persist partial successful probes before falling back so a retry can
+	// reuse the expensive CRF attempts that already completed.
+	persistGroupProbeCaches(ctx, opts.ProbeOptions, inputs)
 	if opts.FallbackCRFSet {
 		fmt.Fprintf(os.Stderr, "group: probing failed, using --fallback-crf=%s for all files: %v\n", terseFloat(opts.FallbackCRF), probeErr)
 		return encodeGroupWithCRF(ctx, opts, inputs, opts.FallbackCRF, false)
@@ -436,6 +443,9 @@ func groupFallbackOrError(ctx context.Context, opts EncodeOptions, inputs []grou
 
 func encodeGroupWithCRF(ctx context.Context, opts EncodeOptions, inputs []groupInput, crf float64, probeMetadata bool) error {
 	for i, input := range inputs {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		fmt.Fprintf(os.Stderr, ">>> Group reencoding (%d of %d) %s with CRF %s ...\n", i+1, len(inputs), displayPath(input.File), terseFloat(crf))
 		var probe *ProbeResult
 		if probeMetadata {

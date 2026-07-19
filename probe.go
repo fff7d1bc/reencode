@@ -204,7 +204,7 @@ func probeFile(ctx context.Context, opts ProbeOptions, file string, keepSession 
 		result.FloorVMAF = opts.FloorVMAF
 		return result, nil, nil, err
 	}
-	cache, err := prepareProbeCache(opts, file)
+	cache, err := prepareProbeCache(ctx, opts, file, info)
 	if err != nil {
 		warnCache(opts, "probe cache disabled: %v", err)
 	} else if cache != nil && !opts.RefreshCache {

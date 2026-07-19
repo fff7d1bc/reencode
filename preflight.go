@@ -63,18 +63,18 @@ func ffmpegCapabilityOutput(ctx context.Context, arg string) (string, error) {
 	return string(out), nil
 }
 
-func externalToolsHash() (string, error) {
+func externalToolsHash(ctx context.Context) (string, error) {
 	externalToolsHashOnce.Do(func() {
-		externalToolsHashValue, externalToolsHashErr = computeExternalToolsHash()
+		externalToolsHashValue, externalToolsHashErr = computeExternalToolsHash(ctx)
 	})
 	return externalToolsHashValue, externalToolsHashErr
 }
 
-func computeExternalToolsHash() (string, error) {
+func computeExternalToolsHash(parent context.Context) (string, error) {
 	// Probe cache depends on the external scoring and sample-encoding stack, not
 	// just this binary. Hash command outputs that describe the ffmpeg/ffprobe
 	// build plus the specific interfaces reencode relies on.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	var parts []string
 	for _, cmd := range [][]string{

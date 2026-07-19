@@ -618,6 +618,25 @@ func TestRunEncodeCommandStopsImmediatelyWhenCanceled(t *testing.T) {
 	}
 }
 
+func TestRunEncodeGroupStopsImmediatelyWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	opts := EncodeOptions{ProbeOptions: defaultProbeOptions(), GroupCRF: true}
+	if got := runEncodeCommand(ctx, opts, []string{"a.mkv"}); got != 130 {
+		t.Fatalf("exit code = %d, want 130", got)
+	}
+}
+
+func TestGroupFallbackDoesNotEncodeAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	opts := EncodeOptions{ProbeOptions: defaultProbeOptions(), FallbackCRFSet: true, FallbackCRF: 32}
+	err := groupFallbackOrError(ctx, opts, []groupInput{{File: "a.mkv"}}, errors.New("probe failed"))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context cancellation", err)
+	}
+}
+
 func TestFileSHA512MatchesIdenticalContent(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a.mkv")
@@ -902,7 +921,7 @@ func TestProbeCacheStoreLoadPreservesAttempts(t *testing.T) {
 }
 
 func TestProbeCacheNoCacheBypassesPrepare(t *testing.T) {
-	handle, err := prepareProbeCache(ProbeOptions{NoCache: true}, "missing.mkv")
+	handle, err := prepareProbeCache(context.Background(), ProbeOptions{NoCache: true}, "missing.mkv", MediaInfo{})
 	if err != nil {
 		t.Fatal(err)
 	}

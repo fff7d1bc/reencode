@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
@@ -63,7 +64,7 @@ type inputFingerprint struct {
 	SampleHash    string  `json:"sample_hash"`
 }
 
-func prepareProbeCache(opts ProbeOptions, file string) (*probeCacheHandle, error) {
+func prepareProbeCache(ctx context.Context, opts ProbeOptions, file string, info MediaInfo) (*probeCacheHandle, error) {
 	if opts.NoCache {
 		return nil, nil
 	}
@@ -75,16 +76,12 @@ func prepareProbeCache(opts ProbeOptions, file string) (*probeCacheHandle, error
 	if err != nil {
 		return nil, err
 	}
-	toolHash, err := externalToolsHash()
+	toolHash, err := externalToolsHash(ctx)
 	if err != nil {
 		return nil, err
 	}
 	// Cache identity includes the current executable. Probe behavior is still
 	// evolving, so a rebuilt binary must not silently trust older measurements.
-	info, err := probeMedia(file)
-	if err != nil {
-		return nil, err
-	}
 	fingerprint, err := fastInputFingerprint(file, info)
 	if err != nil {
 		return nil, err
