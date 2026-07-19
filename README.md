@@ -40,10 +40,11 @@ Final ffmpeg decoding and filtering errors are fatal. Before publishing,
 duration and estimated frame counts within the greater of one percent or two
 seconds. Validation failure keeps the source and removes the unfinished output.
 
-Final encode keeps source stream order and copies non-video streams by default.
-FLAC audio streams are converted to Opus at `256000` bps to save space while
-other audio codecs are copied. Use `--no-audio-transcode` to copy all audio
-streams unchanged.
+Final encode keeps the mapped source order for video, audio, subtitle, and
+attachment streams. The primary video becomes AV1. FLAC audio streams are
+converted to Opus at `256000` bps while other mapped codecs are copied. Data and
+unknown stream types are dropped with a warning. Use `--no-audio-transcode` to
+copy all mapped audio streams unchanged.
 
 Final outputs include `REENCODE_*` MKV metadata with the selected codec,
 encoder, preset, CRF, pixel format, and successful probe VMAF scores when a
@@ -213,8 +214,8 @@ probing.
 - `--check-workers N`: set parallel eligibility check workers. Default: `4`.
 - `--temp-dir PATH`: write probe sample files under this directory.
 - `--keep-temp`: keep encoded probe samples.
-- `--stall-timeout DURATION`: kill ffmpeg if frame progress stalls. Default:
-  `10m`.
+- `--stall-timeout DURATION`: kill ffmpeg if frame progress stalls. Zero
+  disables stall detection. Default: `10m`.
 - `--no-progress`: disable the interactive progress display.
 - `--verbose`: print extra details.
 
@@ -223,11 +224,13 @@ probing.
 - `--crf N`: bypass probing and encode with this CRF.
 - `--fallback-crf N`: use this CRF when probing fails.
 - `--group-crf`: probe all inputs first and encode with one shared CRF.
-- `--overwrite`: allow replacing an existing output file.
+- `--overwrite`: allow replacing the unchanged output file that existed during
+  planning. It does not allow input/output conflicts or replacing a destination
+  that appeared after encoding began.
 - `--force-reencode`: encode even when the input is already `.mkv` with AV1
   video.
-- `--no-audio-transcode`: copy all audio streams without converting FLAC to
-  Opus.
+- `--no-audio-transcode`: copy all mapped audio streams without converting
+  FLAC to Opus.
 - `--dry-run`: print the final ffmpeg command without encoding.
 - `--log-file PATH`: append before/after size records.
 
@@ -255,6 +258,12 @@ consistency over per-file size optimization.
 Matching cache entries are reused, and extra CRF attempts tested while choosing
 the shared CRF are written back to the probe cache.
 
+Group encoding is intentionally non-transactional. Each successfully validated
+file is published and its source is removed before the next file begins. If a
+later encode fails, earlier successes remain committed and are not rolled back.
+A file that fails before its commit keeps its source. All unprocessed sources
+remain untouched.
+
 ## Progress, Cache, And Safety
 
 Interactive terminals show compact stderr progress during sample encode, sample
@@ -280,6 +289,10 @@ for cache lookup.
 Safety behavior:
 
 - final outputs are validated before the source is removed
+- source identity, size, and mtime are rechecked before publication, and the
+  exact source entry is quarantined and verified before removal
+- duplicate destinations, output/input overlap, duplicate physical inputs, and
+  log-file aliases fail before probing or encoding
 - unfinished final encodes and probe samples are cleaned up after failure or
   interruption
 - `--keep-temp` preserves probe samples for inspection
