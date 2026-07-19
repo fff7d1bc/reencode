@@ -1412,16 +1412,27 @@ func TestCRFQConversions(t *testing.T) {
 	}
 }
 
-func TestVMAFTargets(t *testing.T) {
-	got := vmafTargets(95, 94)
-	want := []float64{95, 94.8, 94.6, 94.4, 94.2, 94}
-	if len(got) != len(want) {
-		t.Fatalf("len = %d, want %d: %v", len(got), len(want), got)
+func TestIndividualAndGroupQualityRequireRequestedTarget(t *testing.T) {
+	opts := defaultProbeOptions()
+	search := crfSearch{options: opts}
+	belowTarget := ProbeAttempt{Score: 94.8, WorstSampleScore: 94.5}
+	if search.qualityOK(belowTarget, opts.TargetVMAF) {
+		t.Fatal("individual probe accepted weighted mean below requested target")
 	}
-	for i := range want {
-		if math.Abs(got[i]-want[i]) > 0.000001 {
-			t.Fatalf("target[%d] = %v, want %v; all %v", i, got[i], want[i], got)
-		}
+	if groupQualityOK(belowTarget, opts) {
+		t.Fatal("group probe accepted weighted mean below requested target")
+	}
+	passing := ProbeAttempt{Score: 95.1, WorstSampleScore: 94.1}
+	if !search.qualityOK(passing, opts.TargetVMAF) || !groupQualityOK(passing, opts) {
+		t.Fatal("target and floor passing attempt should be accepted")
+	}
+	lowSample := ProbeAttempt{Score: 95.2, WorstSampleScore: 93.9}
+	if search.qualityOK(lowSample, opts.TargetVMAF) || groupQualityOK(lowSample, opts) {
+		t.Fatal("attempt below worst-sample floor should be rejected")
+	}
+	lowSample.OutlierAccepted = true
+	if !search.qualityOK(lowSample, opts.TargetVMAF) || !groupQualityOK(lowSample, opts) {
+		t.Fatal("confirmed local outlier should be accepted")
 	}
 }
 
@@ -2085,7 +2096,7 @@ func TestFindForTargetStopsWhenQualityMissIsOversize(t *testing.T) {
 	}
 }
 
-func TestFindReportsOversizeQualityStopOnceAcrossTargets(t *testing.T) {
+func TestFindReportsOversizeQualityStopOnce(t *testing.T) {
 	var buf bytes.Buffer
 	opts := defaultProbeOptions()
 	opts.TargetVMAF = 95

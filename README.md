@@ -140,6 +140,9 @@ It must meet `--target-vmaf`, which defaults to `95`.
 The reported `min vmaf` is the lowest individual sample score. It must meet
 `--vmaf-floor`, which defaults to `94`.
 
+The floor is not a fallback average target. If the weighted mean does not meet
+`--target-vmaf`, probing fails even when every sample meets the floor.
+
 Examples:
 
 - `avg vmaf 95.2, min vmaf 94.4`: pass

@@ -368,27 +368,17 @@ type crfSearch struct {
 }
 
 func (s *crfSearch) find(ctx context.Context) (ProbeAttempt, float64, error) {
-	targets := vmafTargets(s.options.TargetVMAF, s.options.FloorVMAF)
-	var lastErr error
-	// Try the requested target first, then step down toward the floor. This is
-	// what makes one command cover "aim for 95, but accept down to 94" without
-	// an external retry script.
-	for _, target := range targets {
-		best, ok, err := s.findForTarget(ctx, target)
-		if err != nil {
-			return ProbeAttempt{}, target, err
-		}
-		if ok {
-			best.EffectiveTarget = target
-			s.attempts[qFromCRF(best.CRF)] = best
-			return best, target, nil
-		}
-		lastErr = fmt.Errorf("no CRF satisfied VMAF %.2f and max encoded percent %.0f", target, s.options.MaxEncodedPercent)
+	target := s.options.TargetVMAF
+	best, ok, err := s.findForTarget(ctx, target)
+	if err != nil {
+		return ProbeAttempt{}, target, err
 	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("no CRF satisfied VMAF floor %.2f", s.options.FloorVMAF)
+	if !ok {
+		return ProbeAttempt{}, target, fmt.Errorf("no CRF satisfied VMAF target %.2f, floor %.2f, and max encoded percent %.0f", target, s.options.FloorVMAF, s.options.MaxEncodedPercent)
 	}
-	return ProbeAttempt{}, s.options.FloorVMAF, lastErr
+	best.EffectiveTarget = target
+	s.attempts[qFromCRF(best.CRF)] = best
+	return best, target, nil
 }
 
 func (s *crfSearch) findForTarget(ctx context.Context, target float64) (ProbeAttempt, bool, error) {
@@ -1084,23 +1074,4 @@ func qFromCRF(crf float64) int {
 
 func crfFromQ(q int) float64 {
 	return float64(q) * defaultCRFIncrement
-}
-
-func vmafTargets(target, floor float64) []float64 {
-	if target <= 0 {
-		target = defaultTargetVMAF
-	}
-	if floor <= 0 || floor > target {
-		floor = target
-	}
-	var out []float64
-	// Step in tenths but round each value to avoid accumulated float noise from
-	// changing which effective targets are attempted.
-	for v := target; v >= floor-0.0001; v -= 0.2 {
-		out = append(out, math.Round(v*10)/10)
-	}
-	if out[len(out)-1] > floor {
-		out = append(out, floor)
-	}
-	return out
 }
