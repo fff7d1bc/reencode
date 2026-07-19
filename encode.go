@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -65,7 +64,7 @@ func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) i
 		}
 		file := input.File
 		fmt.Fprintf(os.Stderr, ">>> Reencoding (%d of %d) %s ...\n", i+1, len(eligibility.Actionable), displayPath(file))
-		if err := encodeOne(ctx, opts, file); err != nil {
+		if err := encodeOne(ctx, opts, input); err != nil {
 			if ctx.Err() != nil {
 				return 130
 			}
@@ -89,22 +88,26 @@ func encodeFFmpegRequirements(opts EncodeOptions) ffmpegRequirements {
 	return req
 }
 
-func encodeOne(ctx context.Context, opts EncodeOptions, file string) error {
-	if opts.CRFSet {
-		return encodeOneWithCRF(ctx, opts, file, opts.CRF, nil)
+func encodeOne(ctx context.Context, opts EncodeOptions, input eligibleInput) error {
+	if err := verifySourceSnapshot(input.File, input.Source); err != nil {
+		return err
 	}
-	crf, probe, err := chooseCRF(ctx, opts, file)
+	if opts.CRFSet {
+		return encodeOneWithCRF(ctx, opts, input, opts.CRF, nil)
+	}
+	crf, probe, err := chooseCRF(ctx, opts, input.File)
 	if err != nil {
 		return err
 	}
-	return encodeOneWithCRF(ctx, opts, file, crf, probe)
+	return encodeOneWithCRF(ctx, opts, input, crf, probe)
 }
 
-func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf float64, probe *ProbeResult) error {
-	info, err := probeInputMedia(file)
-	if err != nil {
+func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInput, crf float64, probe *ProbeResult) (retErr error) {
+	file := input.File
+	if err := verifySourceSnapshot(file, input.Source); err != nil {
 		return err
 	}
+	info := input.Info
 	sourceSize := fileSize(file)
 	output := outputPathFor(file)
 	if _, err := os.Stat(output); err == nil && !opts.Overwrite {
@@ -156,6 +159,27 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf 
 	if err := validateOutput(tmp); err != nil {
 		return err
 	}
+	if err := verifySourceSnapshot(file, input.Source); err != nil {
+		return err
+	}
+	quarantine, err := quarantineSource(file, input.Source)
+	if err != nil {
+		return err
+	}
+	sourceQuarantined := true
+	defer func() {
+		if !sourceQuarantined {
+			return
+		}
+		if err := restoreQuarantinedSource(quarantine, file); err != nil {
+			restoreErr := fmt.Errorf("restore source %s from %s: %w", displayPath(file), displayPath(quarantine), err)
+			if retErr == nil {
+				retErr = restoreErr
+			} else {
+				retErr = fmt.Errorf("%v; %w", retErr, restoreErr)
+			}
+		}
+	}()
 	if opts.Overwrite {
 		_ = os.Remove(output)
 	}
@@ -165,13 +189,14 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, file string, crf 
 	// From here on the temp path has become the final output. Do not let the
 	// cleanup defer remove it if logging or source removal fails afterward.
 	removeTemp = false
-	if err := appendLogFile(opts.LogFile, file, output); err != nil {
+	if err := appendLogFile(opts.LogFile, file, output, sourceSize); err != nil {
 		return err
 	}
 	outputSize := fileSize(output)
-	if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(quarantine); err != nil {
 		return fmt.Errorf("encoded output is ready but removing source failed: %w", err)
 	}
+	sourceQuarantined = false
 	fmt.Fprintln(os.Stderr, formatEncodeSuccessLine(file, output, crf, sourceSize, outputSize))
 	return nil
 }
@@ -229,6 +254,7 @@ func reencodeMetadataArgs(video VideoArgs, opts ProbeOptions, probe *ProbeResult
 type groupInput struct {
 	File    string
 	Info    MediaInfo
+	Source  sourceSnapshot
 	Result  ProbeResult
 	Session *probeSession
 	Cache   *probeCacheHandle
@@ -247,6 +273,9 @@ func encodeGroup(ctx context.Context, opts EncodeOptions, eligible []eligibleInp
 	}
 
 	for i := range inputs {
+		if err := verifySourceSnapshot(inputs[i].File, inputs[i].Source); err != nil {
+			return err
+		}
 		fmt.Fprintf(os.Stderr, ">>> Group probing (%d of %d) %s ...\n", i+1, len(inputs), displayPath(inputs[i].File))
 		result, session, cache, err := probeFileSession(ctx, opts.ProbeOptions, inputs[i].File)
 		if err != nil {
@@ -307,7 +336,7 @@ func persistProbeSessionCache(ctx context.Context, opts ProbeOptions, cache *pro
 func groupInputsFromEligible(eligible []eligibleInput) []groupInput {
 	var inputs []groupInput
 	for _, input := range eligible {
-		inputs = append(inputs, groupInput{File: input.File, Info: input.Info})
+		inputs = append(inputs, groupInput{File: input.File, Info: input.Info, Source: input.Source})
 	}
 	return inputs
 }
@@ -386,7 +415,7 @@ func encodeGroupWithCRF(ctx context.Context, opts EncodeOptions, inputs []groupI
 		if probeMetadata {
 			probe = groupProbeMetadata(input, opts.ProbeOptions, crf)
 		}
-		if err := encodeOneWithCRF(ctx, opts, input.File, crf, probe); err != nil {
+		if err := encodeOneWithCRF(ctx, opts, eligibleInput{File: input.File, Info: input.Info, Source: input.Source}, crf, probe); err != nil {
 			return err
 		}
 	}

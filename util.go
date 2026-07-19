@@ -118,7 +118,7 @@ func fileSize(path string) int64 {
 	return stat.Size()
 }
 
-func appendLogFile(path, input, output string) error {
+func appendLogFile(path, input, output string, inputSize int64) error {
 	if path == "" {
 		return nil
 	}
@@ -127,7 +127,7 @@ func appendLogFile(path, input, output string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "%s\t%s\n%s\t%s\n\n", humanBytes(fileSize(input)), input, humanBytes(fileSize(output)), output)
+	_, err = fmt.Fprintf(f, "%s\t%s\n%s\t%s\n\n", humanBytes(inputSize), input, humanBytes(fileSize(output)), output)
 	return err
 }
 
