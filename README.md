@@ -67,6 +67,11 @@ primary video codec is AV1. Use `--force-reencode` to bypass the already-AV1
 skip. Use `--skip-name TEXT` to skip inputs whose basename contains a marker
 you choose, such as `[reencoded]`. The option can be repeated.
 
+Some valid containers, including MPEG transport streams, are not recognized by
+the built-in sniffer. Use `--force-video` to send regular-file inputs directly
+to ffprobe. The flag bypasses only content sniffing. ffprobe must still find a
+valid video stream and usable media metadata.
+
 When more than one input is passed, `reencode` checks eligibility first and
 prints a compact summary before starting probe or encode work. The work counter
 then counts only actionable files, not every path matched by the shell. This
@@ -201,6 +206,8 @@ probing.
   low sample.
 - `--no-cache`: bypass probe cache.
 - `--refresh-cache`: ignore existing probe cache and write a fresh result.
+- `--force-video`: bypass content sniffing for regular files and require
+  ffprobe to find video.
 - `--skip-name TEXT`: skip files whose basename contains this text. Repeat the
   option for multiple markers.
 - `--check-workers N`: set parallel eligibility check workers. Default: `4`.

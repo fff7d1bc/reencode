@@ -22,6 +22,7 @@ type ProbeOptions struct {
 	NoOutlierCheck    bool
 	NoCache           bool
 	RefreshCache      bool
+	ForceVideo        bool
 	SkipNames         []string
 	CheckWorkers      int
 	Samples           int
@@ -195,7 +196,7 @@ func probeFileSession(ctx context.Context, opts ProbeOptions, file string) (Prob
 }
 
 func probeFile(ctx context.Context, opts ProbeOptions, file string, keepSession bool) (ProbeResult, *probeSession, *probeCacheHandle, error) {
-	info, err := probeInputMedia(file)
+	info, err := probeInputMediaContextWithPolicy(ctx, file, opts.ForceVideo)
 	if err != nil {
 		var result ProbeResult
 		result.File = file

@@ -51,7 +51,11 @@ func probeInputMedia(path string) (MediaInfo, error) {
 }
 
 func probeInputMediaContext(ctx context.Context, path string) (MediaInfo, error) {
-	ok, err := candidateVideoByContent(path)
+	return probeInputMediaContextWithPolicy(ctx, path, false)
+}
+
+func probeInputMediaContextWithPolicy(ctx context.Context, path string, forceVideo bool) (MediaInfo, error) {
+	ok, err := candidateVideo(path, forceVideo)
 	if err != nil {
 		return MediaInfo{}, err
 	}
@@ -65,12 +69,19 @@ func probeInputMediaContext(ctx context.Context, path string) (MediaInfo, error)
 }
 
 func candidateVideoByContent(path string) (bool, error) {
+	return candidateVideo(path, false)
+}
+
+func candidateVideo(path string, forceVideo bool) (bool, error) {
 	stat, err := os.Stat(path)
 	if err != nil {
 		return false, err
 	}
 	if stat.IsDir() || !stat.Mode().IsRegular() {
 		return false, nil
+	}
+	if forceVideo {
+		return true, nil
 	}
 	f, err := os.Open(path)
 	if err != nil {

@@ -44,6 +44,8 @@ Options:
       Disable probe cache.
   --refresh-cache
       Ignore existing probe cache and write fresh result.
+  --force-video
+      Bypass content sniffing for regular files. ffprobe must still find video.
   --skip-name text
       Skip files whose basename contains this text. Can be repeated.
   --check-workers int
@@ -107,6 +109,8 @@ Options:
       Disable probe cache.
   --refresh-cache
       Ignore existing probe cache and write fresh result.
+  --force-video
+      Bypass content sniffing for regular files. ffprobe must still find video.
   --skip-name text
       Skip files whose basename contains this text. Can be repeated.
   --check-workers int

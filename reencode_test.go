@@ -100,6 +100,23 @@ func TestCandidateVideoByContentSkipsDirectory(t *testing.T) {
 	}
 }
 
+func TestForceVideoBypassesOnlyContentSniffing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "video.ts")
+	if err := os.WriteFile(path, []byte{0x47, 0x40, 0x00, 0x10}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := candidateVideo(path, false); err != nil || ok {
+		t.Fatalf("default candidate = %v, %v; want rejected", ok, err)
+	}
+	if ok, err := candidateVideo(path, true); err != nil || !ok {
+		t.Fatalf("forced candidate = %v, %v; want accepted", ok, err)
+	}
+	if ok, err := candidateVideo(dir, true); err != nil || ok {
+		t.Fatalf("forced directory = %v, %v; want rejected", ok, err)
+	}
+}
+
 func TestProbeInputMediaNotVideoErrorUsesBasename(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "image.png")
@@ -1000,6 +1017,23 @@ func TestParseEncodeForceReencodeFlag(t *testing.T) {
 	}
 	if !opts.ForceReencode {
 		t.Fatalf("force reencode flag not parsed: %+v", opts)
+	}
+}
+
+func TestParseForceVideoFlag(t *testing.T) {
+	probeOpts, _, err := parseProbeArgs([]string{"--force-video", "a.ts"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !probeOpts.ForceVideo {
+		t.Fatal("probe --force-video was not parsed")
+	}
+	encodeOpts, _, err := parseEncodeArgs([]string{"--force-video", "a.ts"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !encodeOpts.ProbeOptions.ForceVideo {
+		t.Fatal("encode --force-video was not parsed")
 	}
 }
 

@@ -147,7 +147,7 @@ func classifyEligibilityInput(ctx context.Context, mode eligibilityMode, file st
 	// This is the only eligibility step that may spawn ffprobe. Keep all
 	// filename-only checks above it so broad globs and explicit skip markers do
 	// not spend work on paths we already know are no-ops.
-	info, err := probeInputMediaContext(ctx, file)
+	info, err := probeInputMediaContextWithPolicy(ctx, file, opts.ProbeOptions.ForceVideo)
 	if err != nil {
 		switch {
 		case errors.Is(err, errNotVideoFile):
