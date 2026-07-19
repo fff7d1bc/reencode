@@ -310,7 +310,20 @@ installation.
 
 ## Build
 
+The module targets Go 1.26. Make keeps Go caches, downloaded module and
+toolchain state, temporary files, and telemetry under `build/`.
+
+Automatic Go toolchain selection remains enabled by default. To require the
+installed toolchain instead, pass `GOTOOLCHAIN=local`:
+
 ```sh
+make GOTOOLCHAIN=local build
+```
+
+Run the test suite and build the local binary with:
+
+```sh
+make test
 make build
 ```
 
@@ -324,4 +337,26 @@ There is also a static build target:
 
 ```sh
 make static
+```
+
+Use `make -B build` or `make -B static` to force a fresh build. For local
+development, build and run the command with arguments through `ARGS`:
+
+```sh
+make run ARGS='--help'
+```
+
+## Install
+
+```sh
+make install
+```
+
+When run as root, this installs `reencode` to `/usr/local/bin`. Otherwise it
+installs to `$HOME/.local/bin`.
+
+Repository-local build state can be removed with:
+
+```sh
+make clean
 ```

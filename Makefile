@@ -1,5 +1,6 @@
 APP := reencode
 BUILD_DIR := $(CURDIR)/build
+GOTOOLCHAIN ?= auto
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 PLATFORM := $(GOOS)-$(GOARCH)
@@ -8,6 +9,7 @@ BIN_DIR := $(PLATFORM_BUILD_DIR)/bin
 BIN := $(BIN_DIR)/$(APP)
 STATIC_BIN := $(BIN_DIR)/$(APP)-static
 GO_SOURCES := $(wildcard *.go)
+GO_MODULE_FILES := go.mod $(wildcard go.sum)
 GOCACHE := $(PLATFORM_BUILD_DIR)/gocache
 GOMODCACHE := $(PLATFORM_BUILD_DIR)/gomodcache
 GOPATH := $(PLATFORM_BUILD_DIR)/gopath
@@ -16,6 +18,8 @@ GOTELEMETRYDIR := $(PLATFORM_BUILD_DIR)/telemetry
 GOENV := off
 GOFLAGS := -modcacherw -buildvcs=false
 
+export GOOS
+export GOARCH
 export GOCACHE
 export GOMODCACHE
 export GOPATH
@@ -23,6 +27,7 @@ export GOTMPDIR
 export GOTELEMETRYDIR
 export GOENV
 export GOFLAGS
+export GOTOOLCHAIN
 export GOTELEMETRY=off
 
 .PHONY: all build static test run install clean
@@ -37,11 +42,11 @@ test:
 	mkdir -p "$(GOCACHE)" "$(GOMODCACHE)" "$(GOPATH)" "$(GOTMPDIR)" "$(GOTELEMETRYDIR)"
 	go test .
 
-$(BIN): go.mod $(GO_SOURCES)
+$(BIN): $(GO_MODULE_FILES) $(GO_SOURCES)
 	mkdir -p "$(BIN_DIR)" "$(GOCACHE)" "$(GOMODCACHE)" "$(GOPATH)" "$(GOTMPDIR)" "$(GOTELEMETRYDIR)"
 	go build -trimpath -o "$(BIN)" .
 
-$(STATIC_BIN): go.mod $(GO_SOURCES)
+$(STATIC_BIN): $(GO_MODULE_FILES) $(GO_SOURCES)
 	mkdir -p "$(BIN_DIR)" "$(GOCACHE)" "$(GOMODCACHE)" "$(GOPATH)" "$(GOTMPDIR)" "$(GOTELEMETRYDIR)"
 	CGO_ENABLED=0 go build -trimpath -tags "netgo osusergo" -ldflags "-s -w -buildid=" -o "$(STATIC_BIN)" .
 	@echo "static binary: $(STATIC_BIN)"
