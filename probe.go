@@ -716,13 +716,20 @@ func (s *crfSearch) reportTargetStop(target float64, attempt ProbeAttempt) {
 	s.reportedTargetStops[q] = true
 }
 
+const (
+	probeCRFColumnWidth       = 5
+	probeVMAFColumnWidth      = 8
+	probeSizeColumnWidth      = 4
+	probePredictedColumnWidth = 10
+)
+
 func formatProbeAttemptHeader() string {
 	return strings.Join([]string{
-		fmt.Sprintf("    %5s", "crf"),
-		centerColumn("avg vmaf", 8),
-		centerColumn("min vmaf", 8),
-		centerColumn("size", 4),
-		centerColumn("predicted", 9),
+		fmt.Sprintf("    %*s", probeCRFColumnWidth, "crf"),
+		centerColumn("avg vmaf", probeVMAFColumnWidth),
+		centerColumn("min vmaf", probeVMAFColumnWidth),
+		centerColumn("size", probeSizeColumnWidth),
+		centerColumn("predicted", probePredictedColumnWidth),
 		"result",
 	}, "   ")
 }
@@ -741,11 +748,11 @@ func formatProbeAttemptLine(attempt ProbeAttempt, target float64, opts ProbeOpti
 		minVMAF = fmt.Sprintf("%.2f", attempt.WorstSampleScore)
 	}
 	return strings.Join([]string{
-		fmt.Sprintf("    %5s", terseFloat(attempt.CRF)),
-		fmt.Sprintf("%8s", avgVMAF),
-		fmt.Sprintf("%8s", minVMAF),
-		fmt.Sprintf("%4s", size),
-		fmt.Sprintf("%9s", predicted),
+		fmt.Sprintf("    %*s", probeCRFColumnWidth, terseFloat(attempt.CRF)),
+		fmt.Sprintf("%*s", probeVMAFColumnWidth, avgVMAF),
+		fmt.Sprintf("%*s", probeVMAFColumnWidth, minVMAF),
+		fmt.Sprintf("%*s", probeSizeColumnWidth, size),
+		fmt.Sprintf("%*s", probePredictedColumnWidth, predicted),
 		formatProbeAttemptResult(attempt, target, opts),
 	}, "   ")
 }
