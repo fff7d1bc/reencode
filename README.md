@@ -50,6 +50,12 @@ Outputs are written next to the input:
 name_[e-av1].mkv
 ```
 
+The final commit is serialized per output and rechecks the destination before
+publishing. Concurrent commands targeting the same output fail safely instead
+of replacing each other. If a process is killed during this brief commit phase,
+it can leave a hidden `*.reencode-lock` directory. Remove that directory only
+after confirming that no matching `reencode` process is active.
+
 Inputs are skipped when built-in content sniffing does not identify them as
 video files. Inputs are also skipped when they are already `.mkv` files whose
 primary video codec is AV1. Use `--force-reencode` to bypass the already-AV1

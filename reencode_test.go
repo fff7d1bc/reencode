@@ -270,6 +270,95 @@ func TestQuarantineSourceCanRestoreMatchingSource(t *testing.T) {
 	}
 }
 
+func TestVerifyDestinationSnapshotDetectsChanges(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "output.mkv")
+	absent := snapshotDestination(nil)
+	if err := verifyDestinationSnapshot(path, absent, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("first"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyDestinationSnapshot(path, absent, true); err == nil {
+		t.Fatal("appeared destination should be rejected")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	existing := snapshotDestination(info)
+	if err := verifyDestinationSnapshot(path, existing, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("replacement output"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyDestinationSnapshot(path, existing, true); err == nil {
+		t.Fatal("changed destination should be rejected")
+	}
+}
+
+func TestPublishOutputDoesNotReplaceUnexpectedDestination(t *testing.T) {
+	dir := t.TempDir()
+	tmp := filepath.Join(dir, "temp.mkv")
+	output := filepath.Join(dir, "output.mkv")
+	if err := os.WriteFile(tmp, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(output, []byte("existing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishOutput(tmp, output, destinationSnapshot{}, true); err == nil {
+		t.Fatal("no-replace publication should fail")
+	}
+	got, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "existing" {
+		t.Fatalf("destination content = %q", got)
+	}
+}
+
+func TestPublishOutputReplacesApprovedDestination(t *testing.T) {
+	dir := t.TempDir()
+	tmp := filepath.Join(dir, "temp.mkv")
+	output := filepath.Join(dir, "output.mkv")
+	if err := os.WriteFile(tmp, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(output, []byte("existing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publishOutput(tmp, output, snapshotDestination(info), true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new" {
+		t.Fatalf("destination content = %q", got)
+	}
+}
+
+func TestAcquireOutputCommitLockRejectsContention(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "output.mkv")
+	lock, err := acquireOutputCommitLock(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(lock)
+	if _, err := acquireOutputCommitLock(output); err == nil || !contains(err.Error(), "locked") {
+		t.Fatalf("contention error = %v", err)
+	}
+}
+
 func TestReserveFinalTempPathIsUniqueAndHidden(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "movie.mp4")

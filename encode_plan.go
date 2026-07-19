@@ -48,6 +48,8 @@ func validateEncodePaths(opts EncodeOptions, files []string, actionable []eligib
 		if err != nil {
 			return fmt.Errorf("inspect output %s: %w", displayPath(outputPath), err)
 		}
+		input.Output = outputPath
+		input.Destination = snapshotDestination(output.info)
 		for _, previous := range outputs {
 			if encodePathsAlias(output, previous) {
 				return fmt.Errorf("multiple inputs would write the same output: %s", displayPath(outputPath))
@@ -85,6 +87,79 @@ type sourceSnapshot struct {
 	info    os.FileInfo
 	size    int64
 	modTime int64
+}
+
+type destinationSnapshot struct {
+	existed bool
+	info    os.FileInfo
+	size    int64
+	modTime int64
+}
+
+func snapshotDestination(info os.FileInfo) destinationSnapshot {
+	if info == nil {
+		return destinationSnapshot{}
+	}
+	return destinationSnapshot{existed: true, info: info, size: info.Size(), modTime: info.ModTime().UnixNano()}
+}
+
+func verifyDestinationSnapshot(path string, snapshot destinationSnapshot, overwrite bool) error {
+	info, err := os.Stat(path)
+	if !snapshot.existed {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("inspect output %s: %w", displayPath(path), err)
+		}
+		return fmt.Errorf("output appeared after planning: %s", displayPath(path))
+	}
+	if !overwrite {
+		return fmt.Errorf("output already exists: %s", displayPath(path))
+	}
+	if err != nil {
+		return fmt.Errorf("output changed after planning: %s: %w", displayPath(path), err)
+	}
+	if !os.SameFile(info, snapshot.info) || info.Size() != snapshot.size || info.ModTime().UnixNano() != snapshot.modTime {
+		return fmt.Errorf("output changed after planning: %s", displayPath(path))
+	}
+	return nil
+}
+
+func acquireOutputCommitLock(output string) (string, error) {
+	lock := filepath.Join(filepath.Dir(output), "."+filepath.Base(output)+".reencode-lock")
+	if err := os.Mkdir(lock, 0o700); err != nil {
+		if os.IsExist(err) {
+			return "", fmt.Errorf("output commit is locked: %s (if no matching reencode is active, remove the stale lock)", displayPath(lock))
+		}
+		return "", fmt.Errorf("lock output %s: %w", displayPath(output), err)
+	}
+	return lock, nil
+}
+
+func publishOutput(tmp, output string, destination destinationSnapshot, overwrite bool) error {
+	if destination.existed {
+		if !overwrite {
+			return fmt.Errorf("output already exists: %s", displayPath(output))
+		}
+		if err := os.Rename(tmp, output); err != nil {
+			return fmt.Errorf("replace output %s: %w", displayPath(output), err)
+		}
+		return nil
+	}
+	if runtime.GOOS == "windows" {
+		if err := os.Rename(tmp, output); err != nil {
+			return fmt.Errorf("publish output %s: %w", displayPath(output), err)
+		}
+		return nil
+	}
+	if err := os.Link(tmp, output); err != nil {
+		return fmt.Errorf("publish output %s without replacement: %w", displayPath(output), err)
+	}
+	if err := os.Remove(tmp); err != nil {
+		return fmt.Errorf("remove committed temporary output %s: %w", displayPath(tmp), err)
+	}
+	return nil
 }
 
 func snapshotSource(info os.FileInfo) sourceSnapshot {

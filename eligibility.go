@@ -27,9 +27,11 @@ const (
 )
 
 type eligibleInput struct {
-	File   string
-	Info   MediaInfo
-	Source sourceSnapshot
+	File        string
+	Info        MediaInfo
+	Source      sourceSnapshot
+	Output      string
+	Destination destinationSnapshot
 }
 
 type skippedInput struct {
