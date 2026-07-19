@@ -116,6 +116,81 @@ func TestProbeInputMediaNotVideoErrorUsesBasename(t *testing.T) {
 	}
 }
 
+func TestValidateEncodePathsRejectsDuplicateOutput(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "movie.mp4")
+	second := filepath.Join(dir, "movie.avi")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	actionable := []eligibleInput{{File: first}, {File: second}}
+	if err := validateEncodePaths(EncodeOptions{Overwrite: true}, []string{first, second}, actionable); err == nil || !contains(err.Error(), "same output") {
+		t.Fatalf("error = %v, want duplicate output conflict", err)
+	}
+}
+
+func TestValidateEncodePathsRejectsOutputInputConflict(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "movie.mp4")
+	output := outputPathFor(input)
+	for _, path := range []string{input, output} {
+		if err := os.WriteFile(path, []byte("video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := validateEncodePaths(EncodeOptions{Overwrite: true}, []string{input, output}, []eligibleInput{{File: input}}); err == nil || !contains(err.Error(), "conflicts with input") {
+		t.Fatalf("error = %v, want output/input conflict", err)
+	}
+}
+
+func TestValidateEncodePathsRejectsDuplicatePhysicalInput(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.mp4")
+	if err := os.WriteFile(first, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(first, second); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	actionable := []eligibleInput{{File: first}, {File: second}}
+	if err := validateEncodePaths(EncodeOptions{}, []string{first, second}, actionable); err == nil || !contains(err.Error(), "same file") {
+		t.Fatalf("error = %v, want duplicate physical input", err)
+	}
+}
+
+func TestValidateEncodePathsRejectsLogAliases(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "movie.mp4")
+	if err := os.WriteFile(input, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	actionable := []eligibleInput{{File: input}}
+	if err := validateEncodePaths(EncodeOptions{LogFile: input}, []string{input}, actionable); err == nil || !contains(err.Error(), "log file") {
+		t.Fatalf("input alias error = %v", err)
+	}
+	if err := validateEncodePaths(EncodeOptions{LogFile: outputPathFor(input)}, []string{input}, actionable); err == nil || !contains(err.Error(), "log file") {
+		t.Fatalf("output alias error = %v", err)
+	}
+}
+
+func TestValidateEncodePathsAcceptsDistinctPaths(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.mp4")
+	second := filepath.Join(dir, "second.avi")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	actionable := []eligibleInput{{File: first}, {File: second}}
+	if err := validateEncodePaths(EncodeOptions{LogFile: filepath.Join(dir, "sizes.log")}, []string{first, second}, actionable); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReserveFinalTempPathIsUniqueAndHidden(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "movie.mp4")

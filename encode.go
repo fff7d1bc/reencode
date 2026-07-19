@@ -40,6 +40,10 @@ func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) i
 		fmt.Fprintf(os.Stderr, "%v\n", eligibility.Fatal)
 		return 1
 	}
+	if err := validateEncodePaths(opts, files, eligibility.Actionable); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return 1
+	}
 	printEligibilitySummary(eligibility, len(files), false)
 	if !shouldSummarizeEligibility(files, false) {
 		for _, skipped := range eligibility.Skipped {
