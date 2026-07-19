@@ -37,6 +37,8 @@ type FFMpegResult struct {
 	FrameProgress bool
 }
 
+var ffmpegCommandContext = exec.CommandContext
+
 func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 	args := append([]string{
 		"-hide_banner",
@@ -45,7 +47,7 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 		"-progress", "pipe:1",
 		"-nostats",
 	}, run.Args...)
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := ffmpegCommandContext(ctx, "ffmpeg", args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -86,6 +88,7 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 		ExpectedFrames: run.ExpectedFrames,
 	}
 	done := make(chan struct{})
+	frameAdvanced := make(chan struct{}, 1)
 	var stderrBuf tailBuffer
 	var readers sync.WaitGroup
 
@@ -112,6 +115,10 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 					// wall time or ffmpeg speed, because some hangs still print
 					// misleading non-frame progress.
 					lastIncrease = time.Now()
+					select {
+					case frameAdvanced <- struct{}{}:
+					default:
+					}
 				}
 			}
 			if update.HaveOutTime {
@@ -161,8 +168,13 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 		close(done)
 	}()
 
-	tick := time.NewTicker(time.Second)
-	defer tick.Stop()
+	var stallTimer *time.Timer
+	var stallC <-chan time.Time
+	if run.StallTimeout > 0 {
+		stallTimer = time.NewTimer(run.StallTimeout)
+		stallC = stallTimer.C
+		defer stallTimer.Stop()
+	}
 	for {
 		select {
 		case err := <-waitErr:
@@ -177,31 +189,52 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 				return out, fmt.Errorf("%s: could not parse VMAF score\n%s", run.Role, strings.TrimSpace(out.Stderr))
 			}
 			return out, nil
-		case <-tick.C:
-			if run.StallTimeout <= 0 {
-				continue
-			}
+		case <-frameAdvanced:
+			mu.Lock()
+			last := lastIncrease
+			mu.Unlock()
+			resetTimerFromLastProgress(stallTimer, run.StallTimeout, last)
+		case <-stallC:
 			mu.Lock()
 			haveFrames := res.FrameProgress
 			last := lastIncrease
 			frame := res.LastFrame
 			mu.Unlock()
-			if !haveFrames {
+			if remaining := run.StallTimeout - time.Since(last); remaining > 0 {
+				stallTimer.Reset(remaining)
 				continue
 			}
-			if time.Since(last) >= run.StallTimeout {
-				_ = cmd.Process.Kill()
-				// Wait for the reader goroutines before returning so stderr is
-				// drained and the terminal does not get a late dump after Ctrl-C.
-				<-done
-				mu.Lock()
-				res.Stderr = stderrBuf.String()
-				out := res
-				mu.Unlock()
-				return out, fmt.Errorf("%s: ffmpeg stalled for %s without frame progress; last frame %d", run.Role, run.StallTimeout, frame)
+			_ = cmd.Process.Kill()
+			// Wait for the reader goroutines before returning so stderr is
+			// drained and the terminal does not get a late dump after Ctrl-C.
+			<-done
+			mu.Lock()
+			res.Stderr = stderrBuf.String()
+			out := res
+			mu.Unlock()
+			if !haveFrames {
+				return out, fmt.Errorf("%s: ffmpeg stalled for %s without frame progress; no frame received", run.Role, run.StallTimeout)
 			}
+			return out, fmt.Errorf("%s: ffmpeg stalled for %s without frame progress; last frame %d", run.Role, run.StallTimeout, frame)
 		}
 	}
+}
+
+func resetTimerFromLastProgress(timer *time.Timer, timeout time.Duration, last time.Time) {
+	if timer == nil {
+		return
+	}
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	remaining := timeout - time.Since(last)
+	if remaining <= 0 {
+		remaining = time.Nanosecond
+	}
+	timer.Reset(remaining)
 }
 
 func ffmpegWaitError(role string, err error, stderr string, ctxErr error) error {

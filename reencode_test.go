@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1708,6 +1710,80 @@ func TestFFmpegFailedErrorIncludesStderrForRealFailure(t *testing.T) {
 	if !contains(text, "ffmpeg failed") || !contains(text, "ffmpeg stderr dump") {
 		t.Fatalf("failure error should include stderr: %q", text)
 	}
+}
+
+func TestRunFFmpegStallsBeforeFirstFrame(t *testing.T) {
+	restore := useFFmpegHelperProcess(t, "hang")
+	defer restore()
+	started := time.Now()
+	_, err := runFFmpeg(context.Background(), FFMpegRun{Role: "test encode", StallTimeout: 50 * time.Millisecond})
+	if err == nil || !contains(err.Error(), "no frame received") {
+		t.Fatalf("error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("startup stall took %s", elapsed)
+	}
+}
+
+func TestRunFFmpegResetsStallTimerOnIncreasingFrames(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test helper requires a POSIX shell")
+	}
+	restore := useFFmpegHelperProcess(t, "increasing")
+	defer restore()
+	result, err := runFFmpeg(context.Background(), FFMpegRun{Role: "test encode", StallTimeout: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.LastFrame != 3 {
+		t.Fatalf("last frame = %d, want 3", result.LastFrame)
+	}
+}
+
+func TestRunFFmpegDoesNotResetStallTimerOnDuplicateFrames(t *testing.T) {
+	restore := useFFmpegHelperProcess(t, "duplicate")
+	defer restore()
+	_, err := runFFmpeg(context.Background(), FFMpegRun{Role: "test encode", StallTimeout: 70 * time.Millisecond})
+	if err == nil || !contains(err.Error(), "last frame 1") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func useFFmpegHelperProcess(t *testing.T, mode string) func() {
+	t.Helper()
+	original := ffmpegCommandContext
+	ffmpegCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		if mode == "increasing" {
+			return exec.CommandContext(ctx, "sh", "-c", "printf 'frame=1\\n'; sleep 0.08; printf 'frame=2\\n'; sleep 0.08; printf 'frame=3\\n'; sleep 0.08")
+		}
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=TestFFmpegHelperProcess")
+		cmd.Env = append(os.Environ(), "GO_WANT_FFMPEG_HELPER=1", "FFMPEG_HELPER_MODE="+mode)
+		return cmd
+	}
+	return func() { ffmpegCommandContext = original }
+}
+
+func TestFFmpegHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_FFMPEG_HELPER") != "1" {
+		return
+	}
+	switch os.Getenv("FFMPEG_HELPER_MODE") {
+	case "hang":
+		time.Sleep(10 * time.Second)
+	case "increasing":
+		for frame := 1; frame <= 3; frame++ {
+			fmt.Printf("frame=%d\n", frame)
+			time.Sleep(80 * time.Millisecond)
+		}
+	case "duplicate":
+		for i := 0; i < 5; i++ {
+			fmt.Println("frame=1")
+			time.Sleep(30 * time.Millisecond)
+		}
+	default:
+		t.Fatalf("unknown helper mode")
+	}
+	os.Exit(0)
 }
 
 func TestProgressFrameParser(t *testing.T) {
