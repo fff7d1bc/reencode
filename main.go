@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -85,11 +86,11 @@ func parseProbeArgs(args []string) (ProbeOptions, []string, error) {
 	if err := fs.Parse(args); err != nil {
 		return ProbeOptions{}, nil, err
 	}
-	if opts.CheckWorkers < 1 {
-		return ProbeOptions{}, nil, fmt.Errorf("--check-workers must be at least 1")
-	}
 	opts.SampleDuration = sampleDuration.value
 	opts.StallTimeout = stallTimeout.value
+	if err := validateProbeOptions(opts); err != nil {
+		return ProbeOptions{}, nil, err
+	}
 	if !opts.JSON {
 		// JSON mode must keep stdout clean and deterministic. The live progress
 		// display writes to stderr, but disabling it here avoids cursor control
@@ -138,12 +139,15 @@ func parseEncodeArgs(args []string) (EncodeOptions, []string, error) {
 	if err := fs.Parse(args); err != nil {
 		return EncodeOptions{}, nil, err
 	}
-	if opts.ProbeOptions.CheckWorkers < 1 {
-		return EncodeOptions{}, nil, fmt.Errorf("--check-workers must be at least 1")
-	}
 	opts.ProbeOptions.Verbose = opts.Verbose
 	opts.ProbeOptions.SampleDuration = sampleDuration.value
 	opts.ProbeOptions.StallTimeout = stallTimeout.value
+	if err := validateProbeOptions(opts.ProbeOptions); err != nil {
+		return EncodeOptions{}, nil, err
+	}
+	if err := validateEncodeOptions(opts); err != nil {
+		return EncodeOptions{}, nil, err
+	}
 	opts.ProbeOptions.Progress = NewProgressDisplay(opts.ProbeOptions.NoProgress)
 	if fs.NArg() == 0 {
 		printEncodeHelp(os.Stderr)
@@ -196,6 +200,9 @@ func (v *durationValue) String() string {
 
 func (v *durationValue) Set(s string) error {
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return fmt.Errorf("duration must be finite")
+		}
 		// Bare numbers are accepted as seconds for quick CLI use. Keep this
 		// before ParseDuration so values like "20" do not become invalid.
 		v.value = time.Duration(f * float64(time.Second))
@@ -206,6 +213,68 @@ func (v *durationValue) Set(s string) error {
 		return err
 	}
 	v.value = d
+	return nil
+}
+
+func validateProbeOptions(opts ProbeOptions) error {
+	for _, value := range []struct {
+		name  string
+		value float64
+	}{
+		{"--target-vmaf", opts.TargetVMAF},
+		{"--vmaf-floor", opts.FloorVMAF},
+		{"--max-encoded-percent", opts.MaxEncodedPercent},
+	} {
+		if math.IsNaN(value.value) || math.IsInf(value.value, 0) {
+			return fmt.Errorf("%s must be finite", value.name)
+		}
+	}
+	if opts.TargetVMAF <= 0 || opts.TargetVMAF > 100 {
+		return fmt.Errorf("--target-vmaf must be greater than 0 and at most 100")
+	}
+	if opts.FloorVMAF <= 0 || opts.FloorVMAF > 100 {
+		return fmt.Errorf("--vmaf-floor must be greater than 0 and at most 100")
+	}
+	if opts.FloorVMAF > opts.TargetVMAF {
+		return fmt.Errorf("--vmaf-floor must not exceed --target-vmaf")
+	}
+	if opts.MaxEncodedPercent <= 0 {
+		return fmt.Errorf("--max-encoded-percent must be greater than 0")
+	}
+	if opts.CheckWorkers < 1 {
+		return fmt.Errorf("--check-workers must be at least 1")
+	}
+	if opts.Samples < 0 {
+		return fmt.Errorf("--samples must not be negative")
+	}
+	if opts.SampleDuration <= 0 {
+		return fmt.Errorf("--sample-duration must be greater than 0")
+	}
+	if opts.StallTimeout < 0 {
+		return fmt.Errorf("--stall-timeout must not be negative")
+	}
+	return nil
+}
+
+func validateEncodeOptions(opts EncodeOptions) error {
+	for _, value := range []struct {
+		name string
+		set  bool
+		crf  float64
+	}{
+		{"--crf", opts.CRFSet, opts.CRF},
+		{"--fallback-crf", opts.FallbackCRFSet, opts.FallbackCRF},
+	} {
+		if !value.set {
+			continue
+		}
+		if math.IsNaN(value.crf) || math.IsInf(value.crf, 0) {
+			return fmt.Errorf("%s must be finite", value.name)
+		}
+		if value.crf < 0 || value.crf > 70 {
+			return fmt.Errorf("%s must be between 0 and 70", value.name)
+		}
+	}
 	return nil
 }
 

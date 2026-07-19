@@ -75,7 +75,7 @@ Options:
   --log-file path
       Append before/after size records.
   --stall-timeout duration
-      Kill ffmpeg if frame progress stalls. Default: 10m.
+      Kill ffmpeg if frame progress stalls. Zero disables it. Default: 10m.
   --verbose
       Print extra details.
   --help
@@ -122,7 +122,7 @@ Options:
   --no-progress
       Disable interactive progress display.
   --stall-timeout duration
-      Kill ffmpeg if frame progress stalls. Default: 10m.
+      Kill ffmpeg if frame progress stalls. Zero disables it. Default: 10m.
   --verbose
       Print extra details.
   --help

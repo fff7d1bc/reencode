@@ -942,6 +942,57 @@ func TestParseEncodeCRFFlags(t *testing.T) {
 	}
 }
 
+func TestParseRejectsInvalidNumericOptions(t *testing.T) {
+	probeCases := [][]string{
+		{"--target-vmaf", "NaN", "a.mkv"},
+		{"--target-vmaf", "+Inf", "a.mkv"},
+		{"--target-vmaf", "0", "a.mkv"},
+		{"--vmaf-floor", "96", "a.mkv"},
+		{"--max-encoded-percent", "0", "a.mkv"},
+		{"--samples", "-1", "a.mkv"},
+		{"--sample-duration", "0", "a.mkv"},
+		{"--stall-timeout", "-1s", "a.mkv"},
+	}
+	for _, args := range probeCases {
+		if _, _, err := parseProbeArgs(args); err == nil {
+			t.Errorf("parseProbeArgs(%q) succeeded", args)
+		}
+	}
+	encodeCases := [][]string{
+		{"--crf", "NaN", "a.mkv"},
+		{"--crf", "71", "a.mkv"},
+		{"--fallback-crf", "-1", "a.mkv"},
+		{"--fallback-crf", "+Inf", "a.mkv"},
+	}
+	for _, args := range encodeCases {
+		if _, _, err := parseEncodeArgs(args); err == nil {
+			t.Errorf("parseEncodeArgs(%q) succeeded", args)
+		}
+	}
+}
+
+func TestParseAcceptsNumericBoundaries(t *testing.T) {
+	if _, _, err := parseProbeArgs([]string{"--target-vmaf", "100", "--vmaf-floor", "100", "--stall-timeout", "0", "a.mkv"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := parseEncodeArgs([]string{"--crf", "0", "--fallback-crf", "70", "a.mkv"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+func TestEncodeProbeJSONReportsWriterFailure(t *testing.T) {
+	err := encodeProbeJSON(json.NewEncoder(failingWriter{}), ProbeResult{File: "a.mkv"})
+	if err == nil || !contains(err.Error(), "write probe JSON") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestParseEncodeForceReencodeFlag(t *testing.T) {
 	opts, _, err := parseEncodeArgs([]string{"--force-reencode", "a.mkv"})
 	if err != nil {

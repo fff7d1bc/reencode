@@ -107,7 +107,10 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 		}
 		if entry.Skipped {
 			if opts.JSON {
-				_ = enc.Encode(probeSkippedResult(skippedInput{File: entry.File, Reason: entry.SkipReason, Pattern: entry.Pattern}, opts))
+				if err := encodeProbeJSON(enc, probeSkippedResult(skippedInput{File: entry.File, Reason: entry.SkipReason, Pattern: entry.Pattern}, opts)); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return 1
+				}
 			}
 			continue
 		}
@@ -119,7 +122,10 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 			}
 			if errors.Is(err, errNotVideoFile) {
 				if opts.JSON {
-					_ = enc.Encode(ProbeResult{File: file, TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF, Error: "not a video file, skipped"})
+					if err := encodeProbeJSON(enc, ProbeResult{File: file, TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF, Error: "not a video file, skipped"}); err != nil {
+						fmt.Fprintln(os.Stderr, err)
+						return 1
+					}
 				} else {
 					fmt.Fprintf(os.Stderr, "%s: not a video file, skipping\n", displayPath(file))
 				}
@@ -127,7 +133,10 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 			}
 			if errors.Is(err, errNoVideoStream) {
 				if opts.JSON {
-					_ = enc.Encode(ProbeResult{File: file, TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF, Error: "no video stream found, skipped"})
+					if err := encodeProbeJSON(enc, ProbeResult{File: file, TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF, Error: "no video stream found, skipped"}); err != nil {
+						fmt.Fprintln(os.Stderr, err)
+						return 1
+					}
 				} else {
 					fmt.Fprintf(os.Stderr, "%s: no video stream found, skipping\n", displayPath(file))
 				}
@@ -140,12 +149,22 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 			exitCode = 1
 		}
 		if opts.JSON {
-			_ = enc.Encode(result)
+			if err := encodeProbeJSON(enc, result); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
 			continue
 		}
 		printProbeHuman(result)
 	}
 	return exitCode
+}
+
+func encodeProbeJSON(enc *json.Encoder, result ProbeResult) error {
+	if err := enc.Encode(result); err != nil {
+		return fmt.Errorf("write probe JSON: %w", err)
+	}
+	return nil
 }
 
 func printProbeHuman(result ProbeResult) {
