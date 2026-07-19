@@ -142,22 +142,13 @@ func publishOutput(tmp, output string, destination destinationSnapshot, overwrit
 		if !overwrite {
 			return fmt.Errorf("output already exists: %s", displayPath(output))
 		}
-		if err := os.Rename(tmp, output); err != nil {
+		if err := replaceOutputFile(tmp, output); err != nil {
 			return fmt.Errorf("replace output %s: %w", displayPath(output), err)
 		}
 		return nil
 	}
-	if runtime.GOOS == "windows" {
-		if err := os.Rename(tmp, output); err != nil {
-			return fmt.Errorf("publish output %s: %w", displayPath(output), err)
-		}
-		return nil
-	}
-	if err := os.Link(tmp, output); err != nil {
+	if err := publishOutputFileNoReplace(tmp, output); err != nil {
 		return fmt.Errorf("publish output %s without replacement: %w", displayPath(output), err)
-	}
-	if err := os.Remove(tmp); err != nil {
-		return fmt.Errorf("remove committed temporary output %s: %w", displayPath(tmp), err)
 	}
 	return nil
 }

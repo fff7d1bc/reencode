@@ -354,6 +354,16 @@ The binary is written to:
 build/<goos>-<goarch>/bin/reencode
 ```
 
+Windows builds use the `.exe` suffix. A Windows amd64 build can be produced
+from any supported Go host with:
+
+```sh
+make GOOS=windows GOARCH=amd64 build
+```
+
+The result is `build/windows-amd64/bin/reencode.exe`. At runtime, Windows also
+requires `ffmpeg.exe` and `ffprobe.exe` to be available in `PATH`.
+
 There is also a static build target:
 
 ```sh
@@ -368,6 +378,9 @@ make run ARGS='--help'
 ```
 
 ## Install
+
+The Makefile install target is for Unix systems. Windows users should place the
+built `.exe` in a directory listed in `PATH`.
 
 ```sh
 make install

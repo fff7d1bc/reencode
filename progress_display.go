@@ -8,9 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
-	"unsafe"
 )
 
 type ProgressState struct {
@@ -323,7 +321,7 @@ func formatDurationShort(d time.Duration) string {
 }
 
 func terminalWidth() int {
-	if width := terminalWidthFromIoctl(); width > 20 {
+	if width := terminalWidthFromOS(); width > 20 {
 		return width
 	}
 	if cols := os.Getenv("COLUMNS"); cols != "" {
@@ -358,21 +356,6 @@ func terminalRows(line string, width int) int {
 		return 1
 	}
 	return rows
-}
-
-func terminalWidthFromIoctl() int {
-	type winsize struct {
-		row    uint16
-		col    uint16
-		xpixel uint16
-		ypixel uint16
-	}
-	var size winsize
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, os.Stderr.Fd(), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&size)))
-	if errno != 0 {
-		return 0
-	}
-	return int(size.col)
 }
 
 func truncateMiddle(value string, width int) string {
