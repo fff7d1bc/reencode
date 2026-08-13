@@ -225,8 +225,9 @@ probing.
 - `--fallback-crf N`: use this CRF when probing fails.
 - `--group-crf`: probe all inputs first and encode with one shared CRF.
 - `--overwrite`: allow replacing the unchanged output file that existed during
-  planning. It does not allow input/output conflicts or replacing a destination
-  that appeared after encoding began.
+  planning, including an output included by a wildcard but skipped during
+  eligibility. It does not allow conflicts with inputs that will be encoded or
+  replacing a destination that appeared after encoding began.
 - `--force-reencode`: encode even when the input is already `.mkv` with AV1
   video.
 - `--no-audio-transcode`: copy all mapped audio streams without converting

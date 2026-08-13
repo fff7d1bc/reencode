@@ -150,7 +150,7 @@ func TestValidateEncodePathsRejectsDuplicateOutput(t *testing.T) {
 	}
 }
 
-func TestValidateEncodePathsRejectsOutputInputConflict(t *testing.T) {
+func TestValidateEncodePathsAllowsSkippedInputAsOverwriteDestination(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "movie.mp4")
 	output := outputPathFor(input)
@@ -159,7 +159,26 @@ func TestValidateEncodePathsRejectsOutputInputConflict(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := validateEncodePaths(EncodeOptions{Overwrite: true}, []string{input, output}, []eligibleInput{{File: input}}); err == nil || !contains(err.Error(), "conflicts with input") {
+	actionable := []eligibleInput{{File: input}}
+	if err := validateEncodePaths(EncodeOptions{Overwrite: true}, []string{input, output}, actionable); err != nil {
+		t.Fatal(err)
+	}
+	if !actionable[0].Destination.existed {
+		t.Fatal("existing overwrite destination was not snapshotted")
+	}
+}
+
+func TestValidateEncodePathsRejectsActionableOutputInputConflict(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "movie.mp4")
+	output := outputPathFor(input)
+	for _, path := range []string{input, output} {
+		if err := os.WriteFile(path, []byte("video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	actionable := []eligibleInput{{File: input}, {File: output}}
+	if err := validateEncodePaths(EncodeOptions{Overwrite: true}, []string{input, output}, actionable); err == nil || !contains(err.Error(), "conflicts with input") {
 		t.Fatalf("error = %v, want output/input conflict", err)
 	}
 }

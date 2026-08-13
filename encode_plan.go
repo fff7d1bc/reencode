@@ -15,17 +15,11 @@ type encodePathRef struct {
 }
 
 func validateEncodePaths(opts EncodeOptions, files []string, actionable []eligibleInput) error {
-	inputs := make([]encodePathRef, 0, len(files))
-	for _, file := range files {
-		ref, err := newEncodePathRef(file)
-		if err != nil {
-			return fmt.Errorf("inspect input %s: %w", displayPath(file), err)
-		}
-		inputs = append(inputs, ref)
-	}
-
+	// Resolve every source before planning outputs so an output cannot alias a
+	// later actionable input. Skipped argv entries are intentionally excluded:
+	// a broad glob may include an existing destination that --overwrite is
+	// supposed to replace.
 	actionableRefs := make([]encodePathRef, 0, len(actionable))
-	outputs := make([]encodePathRef, 0, len(actionable))
 	for i := range actionable {
 		input := &actionable[i]
 		source, err := newEncodePathRef(input.File)
@@ -42,7 +36,11 @@ func validateEncodePaths(opts EncodeOptions, files []string, actionable []eligib
 			}
 		}
 		actionableRefs = append(actionableRefs, source)
+	}
 
+	outputs := make([]encodePathRef, 0, len(actionable))
+	for i := range actionable {
+		input := &actionable[i]
 		outputPath := outputPathFor(input.File)
 		output, err := newEncodePathRef(outputPath)
 		if err != nil {
@@ -55,7 +53,7 @@ func validateEncodePaths(opts EncodeOptions, files []string, actionable []eligib
 				return fmt.Errorf("multiple inputs would write the same output: %s", displayPath(outputPath))
 			}
 		}
-		for _, sourceInput := range inputs {
+		for _, sourceInput := range actionableRefs {
 			if encodePathsAlias(output, sourceInput) {
 				return fmt.Errorf("output %s conflicts with input %s", displayPath(outputPath), displayPath(sourceInput.path))
 			}
@@ -70,7 +68,11 @@ func validateEncodePaths(opts EncodeOptions, files []string, actionable []eligib
 	if err != nil {
 		return fmt.Errorf("inspect log file %s: %w", displayPath(opts.LogFile), err)
 	}
-	for _, input := range inputs {
+	for _, file := range files {
+		input, err := newEncodePathRef(file)
+		if err != nil {
+			return fmt.Errorf("inspect input %s: %w", displayPath(file), err)
+		}
 		if encodePathsAlias(logFile, input) {
 			return fmt.Errorf("log file %s conflicts with input %s", displayPath(opts.LogFile), displayPath(input.path))
 		}
