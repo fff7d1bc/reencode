@@ -35,6 +35,10 @@ For each eligible input, `reencode` probes quality, selects a CRF, encodes
 directly from the original file to an MKV output, validates the result, and then
 removes the source.
 
+Use `--keep-source` to retain the original after a successful encode. This also
+works with explicit CRF, fallback CRF, and group mode. Output validation and
+overwrite protections still apply.
+
 Final ffmpeg decoding and filtering errors are fatal. Before publishing,
 `reencode` verifies AV1 video, display-oriented dimensions, mapped stream layout,
 and duration and estimated frame counts within the greater of one percent or
@@ -248,6 +252,7 @@ probing.
 - `--no-audio-transcode`: copy all mapped audio streams without converting
   FLAC to Opus.
 - `--dry-run`: print the final ffmpeg command without encoding.
+- `--keep-source`: retain the original after successful validation and publication.
 - `--log-file PATH`: append before/after size records.
 
 ### `probe` Only
@@ -275,7 +280,8 @@ Matching cache entries are reused, and extra CRF attempts tested while choosing
 the shared CRF are written back to the probe cache.
 
 Group encoding is intentionally non-transactional. Each successfully validated
-file is published and its source is removed before the next file begins. If a
+file is published and its source is removed (unless `--keep-source` is set)
+before the next file begins. If a
 later encode fails, earlier successes remain committed and are not rolled back.
 A file that fails before its commit keeps its source. All unprocessed sources
 remain untouched.

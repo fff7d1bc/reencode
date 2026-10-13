@@ -128,6 +128,7 @@ func parseEncodeArgs(args []string) (EncodeOptions, []string, error) {
 	fs.BoolVar(&opts.GroupCRF, "group-crf", false, "probe all inputs first and encode with one shared CRF")
 	fs.BoolVar(&opts.ProbeOptions.NoProgress, "no-progress", false, "disable interactive progress display")
 	fs.BoolVar(&opts.Overwrite, "overwrite", false, "overwrite existing output")
+	fs.BoolVar(&opts.KeepSource, "keep-source", false, "retain the source after successful encoding")
 	fs.BoolVar(&opts.ForceReencode, "force-reencode", false, "encode even when input is already .mkv with AV1 video")
 	fs.BoolVar(&opts.NoAudioTranscode, "no-audio-transcode", false, "copy all audio streams without automatic FLAC to Opus conversion")
 	fs.StringVar(&opts.LogFile, "log-file", "", "write before/after size log")

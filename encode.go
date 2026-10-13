@@ -22,6 +22,7 @@ type EncodeOptions struct {
 	DryRun           bool
 	GroupCRF         bool
 	Overwrite        bool
+	KeepSource       bool
 	ForceReencode    bool
 	NoAudioTranscode bool
 	LogFile          string
@@ -198,11 +199,18 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 	if err := verifyDestinationSnapshot(output, input.Destination, opts.Overwrite); err != nil {
 		return err
 	}
-	quarantine, err := quarantineSource(file, input.Source)
+	// Source quarantine protects the removal transaction. Retention mode must
+	// not rename the source, but still checks its identity before publishing.
+	quarantine := ""
+	if !opts.KeepSource {
+		quarantine, err = quarantineSource(file, input.Source)
+	} else {
+		err = verifySourceSnapshot(file, input.Source)
+	}
 	if err != nil {
 		return err
 	}
-	sourceQuarantined := true
+	sourceQuarantined := quarantine != ""
 	defer func() {
 		if !sourceQuarantined {
 			return
@@ -226,11 +234,16 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 		return err
 	}
 	outputSize := fileSize(output)
-	if err := os.Remove(quarantine); err != nil {
-		return fmt.Errorf("encoded output is ready but removing source failed: %w", err)
+	if sourceQuarantined {
+		if err := os.Remove(quarantine); err != nil {
+			return fmt.Errorf("encoded output is ready but removing source failed: %w", err)
+		}
 	}
 	sourceQuarantined = false
 	fmt.Fprintln(os.Stderr, formatEncodeSuccessLine(file, output, crf, sourceSize, outputSize))
+	if opts.KeepSource {
+		fmt.Fprintf(os.Stderr, "%s: source retained\n", displayPath(file))
+	}
 	return nil
 }
 

@@ -70,6 +70,8 @@ Options:
       Disable interactive progress display.
   --overwrite
       Overwrite existing output files.
+  --keep-source
+      Retain the source after successful encoding.
   --force-reencode
       Encode even when input is already .mkv with AV1 video.
   --no-audio-transcode
