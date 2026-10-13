@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,5 +98,45 @@ func TestMediaIntegrationVariableFrameRate(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("validated source not removed: %v", err)
+	}
+}
+
+func TestMediaIntegrationRotation(t *testing.T) {
+	requireMediaIntegration(t)
+	dir := t.TempDir()
+	base := filepath.Join(dir, "base.mov")
+	mediaFixture(t, "-f", "lavfi", "-i", "testsrc=size=160x96:rate=24,format=rgb24", "-t", "3", "-c:v", "qtrle", base)
+	for _, rotation := range []int{90, 180, 270} {
+		t.Run(fmt.Sprint(rotation), func(t *testing.T) {
+			path := filepath.Join(dir, fmt.Sprintf("rotated-%d.mov", rotation))
+			mediaFixture(t, "-display_rotation", fmt.Sprint(rotation), "-i", base, "-c", "copy", path)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			source, err := probeInputMediaContext(ctx, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantWidth, wantHeight := 96, 160
+			if rotation == 180 {
+				wantWidth, wantHeight = 160, 96
+			}
+			if source.Width != wantWidth || source.Height != wantHeight {
+				t.Fatalf("source dimensions = %dx%d", source.Width, source.Height)
+			}
+			opts := defaultProbeOptions()
+			opts.Preset, opts.NoCache, opts.NoProgress = "12", true, true
+			// Exercise automatic VMAF probing as well as explicit-CRF encoding.
+			encodeOpts := EncodeOptions{ProbeOptions: opts, CRFSet: rotation != 90, CRF: 32}
+			if code := runEncodeCommand(ctx, encodeOpts, []string{path}); code != 0 {
+				t.Fatalf("rotated encode failed: exit %d", code)
+			}
+			output, err := probeMediaContext(ctx, outputPathFor(path))
+			if err != nil || output.Width != wantWidth || output.Height != wantHeight {
+				t.Fatalf("output dimensions = %dx%d, err = %v", output.Width, output.Height, err)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("validated source not removed: %v", err)
+			}
+		})
 	}
 }

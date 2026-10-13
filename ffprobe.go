@@ -29,9 +29,11 @@ type MediaInfo struct {
 	VideoCodec  string
 	PixelFormat string
 	HasAlpha    bool
-	Width       int
-	Height      int
-	Streams     []StreamInfo
+	// Width and Height describe decoded frames after FFmpeg's autorotation,
+	// so VMAF scaling and final validation use the same orientation as encoding.
+	Width   int
+	Height  int
+	Streams []StreamInfo
 }
 
 type StreamInfo struct {
@@ -211,6 +213,10 @@ func parseMediaInfo(path string, out []byte) (MediaInfo, error) {
 			Width        int               `json:"width"`
 			Height       int               `json:"height"`
 			Tags         map[string]string `json:"tags"`
+			SideData     []struct {
+				Type     string   `json:"side_data_type"`
+				Rotation *float64 `json:"rotation"`
+			} `json:"side_data_list"`
 		} `json:"streams"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
@@ -243,6 +249,17 @@ func parseMediaInfo(path string, out []byte) (MediaInfo, error) {
 			info.PixelFormat = s.PixFmt
 			info.Width = s.Width
 			info.Height = s.Height
+			for _, side := range s.SideData {
+				if side.Type == "Display Matrix" && side.Rotation != nil {
+					// FFmpeg transposes near 90/270 degrees (within one degree).
+					// Other angles keep the coded canvas size. Rotation metadata
+					// is consumed automatically in both probe and final encodes.
+					if math.Abs(math.Mod(math.Abs(*side.Rotation), 180)-90) < 1 {
+						info.Width, info.Height = info.Height, info.Width
+					}
+					break
+				}
+			}
 			info.FPS = parseFrameRate(s.AvgFrameRate)
 			if info.FPS <= 0 {
 				info.FPS = parseFrameRate(s.RFrameRate)

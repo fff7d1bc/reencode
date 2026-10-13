@@ -78,6 +78,50 @@ func TestEncodeOneWithCRFRejectsAlpha(t *testing.T) {
 	}
 }
 
+func TestParseMediaInfoRotation(t *testing.T) {
+	for _, tc := range []struct {
+		name, sideData string
+		width, height  int
+	}{
+		{"absent", `[]`, 160, 96},
+		{"zero", `[{"side_data_type":"Display Matrix","rotation":0}]`, 160, 96},
+		{"quarter turn", `[{"side_data_type":"Display Matrix","rotation":90}]`, 96, 160},
+		{"negative turn", `[{"side_data_type":"Display Matrix","rotation":-90}]`, 96, 160},
+		{"half turn", `[{"side_data_type":"Display Matrix","rotation":180}]`, 160, 96},
+		{"three quarter turn", `[{"side_data_type":"Display Matrix","rotation":270}]`, 96, 160},
+		{"negative three quarter turn", `[{"side_data_type":"Display Matrix","rotation":-270}]`, 96, 160},
+		{"full turn", `[{"side_data_type":"Display Matrix","rotation":360}]`, 160, 96},
+		{"near quarter turn", `[{"side_data_type":"Display Matrix","rotation":89.5}]`, 96, 160},
+		{"outside tolerance", `[{"side_data_type":"Display Matrix","rotation":89}]`, 160, 96},
+		{"other angle", `[{"side_data_type":"Display Matrix","rotation":45}]`, 160, 96},
+		{"other side data", `[{"side_data_type":"Other","rotation":90}]`, 160, 96},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// A bare rotate tag is not an autorotation instruction in modern
+			// FFmpeg. Only the primary stream's display matrix controls this.
+			data := fmt.Sprintf(`{"format":{"duration":"3"},"streams":[
+				{"index":0,"codec_type":"video","codec_name":"h264","pix_fmt":"yuv420p","avg_frame_rate":"24/1",
+				 "width":160,"height":96,"tags":{"rotate":"90"},"side_data_list":%s},
+				{"index":1,"codec_type":"video","codec_name":"h264","side_data_list":[{"side_data_type":"Display Matrix","rotation":90}]}
+			],"pixel_formats":[{"name":"yuv420p","flags":{"alpha":0}}]}`, tc.sideData)
+			source, err := parseMediaInfo("rotated.mov", []byte(data))
+			if err != nil || source.Width != tc.width || source.Height != tc.height {
+				t.Fatalf("dimensions = %dx%d, err = %v, want %dx%d", source.Width, source.Height, err, tc.width, tc.height)
+			}
+			if !strings.Contains(vmafFilter(source), vmafScaleFilter(tc.width, tc.height)) {
+				t.Fatal("VMAF scale does not match decoded orientation")
+			}
+			output := source
+			output.VideoCodec = "av1"
+			output.Streams = append([]StreamInfo(nil), source.Streams...)
+			output.Streams[0].CodecName = "av1"
+			if err := validateOutputInfo(source, output, EncodeOptions{}); err != nil {
+				t.Fatalf("display-oriented validation failed: %v", err)
+			}
+		})
+	}
+}
+
 func TestCandidateVideoByContentAcceptsMP4(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "no-extension")
