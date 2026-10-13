@@ -10,6 +10,7 @@ func printTopHelp(w io.Writer) {
   reencode encode [options] FILE...
   reencode probe [options] FILE...
   reencode help [command]
+  reencode help licenses
 
 Commands:
   encode    Probe and encode videos to AV1 MKV outputs.
@@ -33,6 +34,8 @@ Detected HDR and video transparency are not supported, including with explicit C
 Options:
   --preset string
       SVT-AV1 preset. Default: 4.
+  --vmaf-profile string
+      VMAF profile: v1 (default, libvmaf 3.2.1+) or legacy.
   --target-vmaf float
       Target VMAF for probing. Default: 95.
   --vmaf-floor float
@@ -99,6 +102,8 @@ Detected HDR and video transparency are not supported.
 Options:
   --preset string
       SVT-AV1 preset. Default: 4.
+  --vmaf-profile string
+      VMAF profile: v1 (default, libvmaf 3.2.1+) or legacy.
   --json
       Emit JSONL results.
   --target-vmaf float

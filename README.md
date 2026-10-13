@@ -156,8 +156,11 @@ The VMAF scoring path is intentionally conservative:
 - VMAF uses `pool=harmonic_mean`
 - scoring requires a complete libvmaf JSON report, not just a successful process
 - VMAF model selection is explicit and deterministic
-- normal sources use `vmaf_v0.6.1`
-- 4K-oriented sources use `vmaf_4k_v0.6.1`
+- the default `v1` profile uses bundled, pinned VMAF v1.0.16 SDR models
+- normal sources use the standard 1080p 3H model and 4K-oriented sources use
+  the 4K 1.5H model, with portrait orientation handled equivalently
+- sources averaging at least 45 fps use the corresponding HFR variant
+- CAMBI uses actual encoded dimensions and 10-bit depth before scoring upscale
 - low-resolution sources may be scaled for VMAF only
 - the final decision uses both a weighted mean score and a worst-sample floor.
 
@@ -173,6 +176,16 @@ by `--keep-temp`.
 runtime. Model choice changes the score, so automatic discovery would make
 results vary across machines and package upgrades. The selected model is part
 of the probe cache identity.
+
+Use `--vmaf-profile legacy` to retain the previous v0.6.1 model and scaling
+policy. V1 requires libvmaf 3.2.1 or newer and at least one encoded dimension
+of 216 pixels. A synthetic startup check loads the selected model and exercises
+its features. Unsupported runtimes fail explicitly, without silently switching
+models. JSON records the model ID, SHA-512, scoring policy, and actual libvmaf
+and SVT-AV1 runtime versions. Successful probe metadata identifies the model.
+Old cache entries remain on disk but are not reused by the new schema.
+Bundled model provenance and licensing are in `models/`. A standalone binary
+also exposes the upstream license through `reencode help licenses`.
 
 ## Target VMAF And Floor
 
@@ -236,6 +249,7 @@ because final encoding uses the same probe engine unless `--crf` bypasses
 probing.
 
 - `--preset N`: use a different SVT-AV1 preset. Default: `4`.
+- `--vmaf-profile v1|legacy`: select the scoring model family. Default: `v1`.
 - `--target-vmaf N`: weighted mean VMAF target. Default: `95`.
 - `--vmaf-floor N`: worst-sample floor. Default: `94`.
 - `--max-encoded-percent N`: maximum encoded sample size percent. Default: `90`.
@@ -322,8 +336,9 @@ Successful probe results are cached under:
 The cache key includes the current binary SHA-512, probe-affecting options,
 cache schema version, an external ffmpeg/ffprobe fingerprint, and a fast input
 fingerprint. The external fingerprint is based on ffmpeg and ffprobe version
-output plus the SVT-AV1 encoder and libvmaf filter help output. The input
-fingerprint uses file size, mtime, media metadata, and SHA-512 over
+output plus the SVT-AV1 encoder and libvmaf filter help output. Actual library
+versions, bundled model bytes, and scoring configuration also enter the key.
+The input fingerprint uses file size, mtime, media metadata, and SHA-512 over
 first/middle/last file slices, so large videos do not need to be read in full
 for cache lookup.
 
@@ -347,10 +362,11 @@ Safety behavior:
 The ffmpeg build must support:
 
 - `libsvtav1`
-- `libvmaf`
+- `libvmaf` 3.2.1 or newer for the default v1 profile
 
 `reencode` checks these capabilities before probing or encoding and fails early
 if a required encoder or filter is missing.
+Explicit `--crf` encoding without quality verification does not require libvmaf.
 
 ## FFmpeg Builds
 

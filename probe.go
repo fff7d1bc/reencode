@@ -14,6 +14,8 @@ import (
 )
 
 type ProbeOptions struct {
+	VMAFProfile       string
+	runtime           RuntimeVersions
 	Preset            string
 	JSON              bool
 	TargetVMAF        float64
@@ -58,6 +60,8 @@ type ProbeAttempt struct {
 }
 
 type ProbeResult struct {
+	Model            VMAFModelInfo       `json:"model"`
+	Runtime          RuntimeVersions     `json:"runtime"`
 	Samples          []SampleDiagnostics `json:"samples,omitempty"`
 	File             string              `json:"file"`
 	Success          bool                `json:"success"`
@@ -209,6 +213,10 @@ func probeFile(ctx context.Context, opts ProbeOptions, file string, keepSession 
 		result.FloorVMAF = opts.FloorVMAF
 		return result, nil, nil, err
 	}
+	opts.runtime, err = checkScoringRuntime(ctx, opts, resolveVMAFModel(opts, info))
+	if err != nil {
+		return ProbeResult{File: file}, nil, nil, err
+	}
 	cache, err := prepareProbeCache(ctx, opts, file, info)
 	if err != nil {
 		warnCache(opts, "probe cache disabled: %v", err)
@@ -263,6 +271,8 @@ type probeSession struct {
 func newProbeSession(opts ProbeOptions, info MediaInfo) (*probeSession, error) {
 	plan := planSamples(info, opts.Samples, opts.SampleDuration)
 	result := ProbeResult{
+		Model:      resolveVMAFModel(opts, info),
+		Runtime:    opts.runtime,
 		File:       info.Path,
 		TargetVMAF: opts.TargetVMAF,
 		FloorVMAF:  opts.FloorVMAF,
@@ -374,6 +384,7 @@ type crfSearch struct {
 	reportedAttemptHeader bool
 	encodedSamplePaths    []string
 	timelines             map[sampleWindowKey]frameTimeline
+	modelPath             string
 }
 
 func (s *crfSearch) find(ctx context.Context) (ProbeAttempt, float64, error) {
@@ -1046,6 +1057,21 @@ func sampleEncodeArgs(video VideoArgs, sample SampleFile, dest string) []string 
 }
 
 func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorted string, progress probeProgress) (SampleDiagnostics, error) {
+	model := resolveVMAFModel(s.options, s.info)
+	if s.options.runtime.LibVMAF == "" {
+		versions, err := checkScoringRuntime(ctx, s.options, model)
+		if err != nil {
+			return SampleDiagnostics{}, err
+		}
+		s.options.runtime = versions
+	}
+	if model.Profile == "v1" && s.modelPath == "" {
+		path, err := materializeVMAFModel(model, s.options.TempDir)
+		if err != nil {
+			return SampleDiagnostics{}, err
+		}
+		s.modelPath = path
+	}
 	if sample.Timeline == nil {
 		return SampleDiagnostics{}, fmt.Errorf("sample timeline was not prepared")
 	}
@@ -1070,7 +1096,7 @@ func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorte
 	args := sampleScoreArgs(s.info, sample, distorted)
 	for i := range args {
 		if args[i] == "-filter_complex" {
-			args[i+1] += ":log_fmt=json:log_path=" + escapeFilterOption(logPath)
+			args[i+1] = model.filter(s.modelPath) + ":log_fmt=json:log_path=" + escapeFilterOption(logPath)
 			break
 		}
 	}
@@ -1118,6 +1144,10 @@ func sampleScoreArgs(info MediaInfo, sample SampleFile, distorted string) []stri
 }
 
 func (s *crfSearch) cleanupEncodedSamples() {
+	if s.modelPath != "" {
+		_ = os.Remove(s.modelPath)
+		s.modelPath = ""
+	}
 	if s.options.KeepTemp {
 		return
 	}

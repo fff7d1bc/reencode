@@ -112,6 +112,7 @@ func TestMediaIntegrationVariableFrameRate(t *testing.T) {
 	defer cancel()
 	opts := defaultProbeOptions()
 	opts.Preset, opts.NoCache, opts.NoProgress = "12", true, true
+	opts.VMAFProfile = "legacy"
 	source, err := probeInputMediaContext(ctx, path)
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +178,7 @@ func TestMediaIntegrationRotation(t *testing.T) {
 			}
 			opts := defaultProbeOptions()
 			opts.Preset, opts.NoCache, opts.NoProgress = "12", true, true
+			opts.VMAFProfile = "legacy"
 			// Exercise automatic VMAF probing as well as explicit-CRF encoding.
 			encodeOpts := EncodeOptions{ProbeOptions: opts, CRFSet: rotation != 90, CRF: 32}
 			if code := runEncodeCommand(ctx, encodeOpts, []string{path}); code != 0 {

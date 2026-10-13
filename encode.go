@@ -278,6 +278,12 @@ func reencodeMetadataArgs(video VideoArgs, opts ProbeOptions, probe *ProbeResult
 		{"REENCODE_PIX_FMT", video.PixFmt},
 	}
 	if probe != nil && probe.Success {
+		if probe.Model.ID != "" {
+			tags = append(tags, metadataTag{"REENCODE_VMAF_MODEL", probe.Model.ID}, metadataTag{"REENCODE_VMAF_PROFILE", probe.Model.Profile})
+			if probe.Model.SHA512 != "" {
+				tags = append(tags, metadataTag{"REENCODE_VMAF_MODEL_SHA512", probe.Model.SHA512})
+			}
+		}
 		target := probe.TargetVMAF
 		if target == 0 {
 			target = opts.TargetVMAF
@@ -489,6 +495,11 @@ func groupProbeMetadata(input groupInput, opts ProbeOptions, crf float64) *Probe
 		return nil
 	}
 	return &ProbeResult{
+		Model:            input.Session.result.Model,
+		Runtime:          input.Session.result.Runtime,
+		Samples:          attempt.Samples,
+		SamplePlan:       input.Session.result.SamplePlan,
+		EffectiveTarget:  opts.TargetVMAF,
 		File:             input.File,
 		Success:          true,
 		CRF:              attempt.CRF,

@@ -10,6 +10,7 @@ EXE := $(if $(filter windows,$(GOOS)),.exe,)
 BIN := $(BIN_DIR)/$(APP)$(EXE)
 STATIC_BIN := $(BIN_DIR)/$(APP)-static$(EXE)
 GO_SOURCES := $(wildcard *.go)
+MODEL_ASSETS := $(wildcard models/*)
 GO_MODULE_FILES := go.mod $(wildcard go.sum)
 GOCACHE := $(PLATFORM_BUILD_DIR)/gocache
 GOMODCACHE := $(PLATFORM_BUILD_DIR)/gomodcache
@@ -43,11 +44,11 @@ test:
 	mkdir -p "$(GOCACHE)" "$(GOMODCACHE)" "$(GOPATH)" "$(GOTMPDIR)" "$(GOTELEMETRYDIR)"
 	go test .
 
-$(BIN): $(GO_MODULE_FILES) $(GO_SOURCES)
+$(BIN): $(GO_MODULE_FILES) $(GO_SOURCES) $(MODEL_ASSETS)
 	mkdir -p "$(BIN_DIR)" "$(GOCACHE)" "$(GOMODCACHE)" "$(GOPATH)" "$(GOTMPDIR)" "$(GOTELEMETRYDIR)"
 	go build -trimpath -o "$(BIN)" .
 
-$(STATIC_BIN): $(GO_MODULE_FILES) $(GO_SOURCES)
+$(STATIC_BIN): $(GO_MODULE_FILES) $(GO_SOURCES) $(MODEL_ASSETS)
 	mkdir -p "$(BIN_DIR)" "$(GOCACHE)" "$(GOMODCACHE)" "$(GOPATH)" "$(GOTMPDIR)" "$(GOTELEMETRYDIR)"
 	CGO_ENABLED=0 go build -trimpath -tags "netgo osusergo" -ldflags "-s -w -buildid=" -o "$(STATIC_BIN)" .
 	@echo "static binary: $(STATIC_BIN)"

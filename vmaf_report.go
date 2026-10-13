@@ -24,9 +24,10 @@ type SampleDiagnostics struct {
 }
 
 type vmafReport struct {
-	Version string
-	Score   float64
-	Frames  []float64
+	SVTVersion string
+	Version    string
+	Score      float64
+	Frames     []float64
 }
 
 var executeVMAF = runFFmpeg
@@ -134,6 +135,9 @@ func runVMAFReport(ctx context.Context, run FFMpegRun, path string, frames int) 
 	}
 	defer f.Close()
 	report, err := readVMAFReport(f, "vmaf", frames)
+	if match := svtVersionPattern.FindStringSubmatch(res.Stderr); len(match) == 2 {
+		report.SVTVersion = match[1]
+	}
 	if err != nil {
 		return report, fmt.Errorf("invalid VMAF report: %w", err)
 	}

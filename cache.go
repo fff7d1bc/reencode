@@ -12,18 +12,20 @@ import (
 	"time"
 )
 
-const probeCacheSchemaVersion = 1
+const probeCacheSchemaVersion = 2
 const probeCacheSampleSize = 1024 * 1024
 
 type probeCacheOptions struct {
-	Preset            string  `json:"preset"`
-	TargetVMAF        float64 `json:"target_vmaf"`
-	FloorVMAF         float64 `json:"floor_vmaf"`
-	MaxEncodedPercent float64 `json:"max_encoded_percent"`
-	NoOutlierCheck    bool    `json:"no_outlier_check"`
-	Samples           int     `json:"samples"`
-	SampleDurationNS  int64   `json:"sample_duration_ns"`
-	VMAFModel         string  `json:"vmaf_model"`
+	Model             VMAFModelInfo   `json:"model"`
+	Runtime           RuntimeVersions `json:"runtime"`
+	Preset            string          `json:"preset"`
+	TargetVMAF        float64         `json:"target_vmaf"`
+	FloorVMAF         float64         `json:"floor_vmaf"`
+	MaxEncodedPercent float64         `json:"max_encoded_percent"`
+	NoOutlierCheck    bool            `json:"no_outlier_check"`
+	Samples           int             `json:"samples"`
+	SampleDurationNS  int64           `json:"sample_duration_ns"`
+	VMAFModel         string          `json:"vmaf_model"`
 }
 
 type probeCacheHandle struct {
@@ -121,11 +123,15 @@ func newProbeCacheHandle(root, binaryHash, externalToolsHash string, fingerprint
 }
 
 func normalizedProbeCacheOptions(opts ProbeOptions) probeCacheOptions {
-	return normalizedProbeCacheOptionsWithModel(opts, vmafDefaultModelVersion)
+	return normalizedProbeCacheOptionsForMedia(opts, MediaInfo{})
 }
 
 func normalizedProbeCacheOptionsForMedia(opts ProbeOptions, info MediaInfo) probeCacheOptions {
-	return normalizedProbeCacheOptionsWithModel(opts, vmafModelVersion(info))
+	model := resolveVMAFModel(opts, info)
+	normalized := normalizedProbeCacheOptionsWithModel(opts, model.ID)
+	normalized.Model = model
+	normalized.Runtime = opts.runtime
+	return normalized
 }
 
 func normalizedProbeCacheOptionsWithModel(opts ProbeOptions, model string) probeCacheOptions {

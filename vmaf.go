@@ -58,8 +58,11 @@ func summarizeScores(scores []sampleScore) scoreSummary {
 }
 
 func vmafFilter(info MediaInfo) string {
+	return configuredVMAFFilter(vmafScaleFilter(info.Width, info.Height), "version="+vmafModelVersion(info))
+}
+
+func configuredVMAFFilter(scale, model string) string {
 	format := "format=" + defaultVMAFPixFmt + ","
-	scale := vmafScaleFilter(info.Width, info.Height)
 	// Reset timestamps on both inputs. Without this, seeking source windows can
 	// make libvmaf compare non-matching frames even though the decoded content
 	// is otherwise correct.
@@ -80,7 +83,7 @@ func vmafFilter(info MediaInfo) string {
 		fmt.Sprintf("n_threads=%d", runtime.GOMAXPROCS(0)),
 		// Model selection is part of the quality policy. Keep it explicit so
 		// scores do not drift with ffmpeg/libvmaf defaults or package upgrades.
-		"model=version=" + vmafModelVersion(info),
+		"model=" + escapeFilterOption(model),
 	}
 	return prefix + "libvmaf=" + strings.Join(args, ":")
 }

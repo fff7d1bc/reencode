@@ -11,6 +11,7 @@ import (
 
 func defaultProbeOptions() ProbeOptions {
 	return ProbeOptions{
+		VMAFProfile:       "v1",
 		Preset:            "4",
 		TargetVMAF:        defaultTargetVMAF,
 		FloorVMAF:         defaultFloorVMAF,

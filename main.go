@@ -65,6 +65,7 @@ func parseProbeArgs(args []string) (ProbeOptions, []string, error) {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() { printProbeHelp(os.Stderr) }
 	fs.StringVar(&opts.Preset, "preset", opts.Preset, "SVT-AV1 preset")
+	fs.StringVar(&opts.VMAFProfile, "vmaf-profile", opts.VMAFProfile, "VMAF profile: v1 or legacy")
 	fs.BoolVar(&opts.JSON, "json", false, "emit JSONL results")
 	fs.Float64Var(&opts.TargetVMAF, "target-vmaf", opts.TargetVMAF, "target VMAF")
 	fs.Float64Var(&opts.FloorVMAF, "vmaf-floor", opts.FloorVMAF, "lowest acceptable VMAF")
@@ -112,6 +113,7 @@ func parseEncodeArgs(args []string) (EncodeOptions, []string, error) {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() { printEncodeHelp(os.Stderr) }
 	fs.StringVar(&opts.ProbeOptions.Preset, "preset", probeOpts.Preset, "SVT-AV1 preset")
+	fs.StringVar(&opts.ProbeOptions.VMAFProfile, "vmaf-profile", probeOpts.VMAFProfile, "VMAF profile: v1 or legacy")
 	fs.Float64Var(&opts.ProbeOptions.TargetVMAF, "target-vmaf", probeOpts.TargetVMAF, "target VMAF for probing")
 	fs.Float64Var(&opts.ProbeOptions.FloorVMAF, "vmaf-floor", probeOpts.FloorVMAF, "lowest acceptable VMAF for probing")
 	fs.Float64Var(&opts.ProbeOptions.MaxEncodedPercent, "max-encoded-percent", probeOpts.MaxEncodedPercent, "maximum encoded sample size percent")
@@ -176,6 +178,12 @@ func printHelp(args []string) {
 		return
 	}
 	switch args[0] {
+	case "licenses":
+		license, err := vmafAssets.ReadFile("models/LICENSE")
+		if err != nil {
+			panic(err)
+		}
+		fmt.Fprintln(os.Stdout, string(license))
 	case "encode":
 		printEncodeHelp(os.Stdout)
 	case "probe":
@@ -220,6 +228,9 @@ func (v *durationValue) Set(s string) error {
 }
 
 func validateProbeOptions(opts ProbeOptions) error {
+	if opts.VMAFProfile != "v1" && opts.VMAFProfile != "legacy" {
+		return fmt.Errorf("--vmaf-profile must be v1 or legacy")
+	}
 	for _, value := range []struct {
 		name  string
 		value float64
