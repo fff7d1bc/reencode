@@ -25,14 +25,11 @@ type FFMpegRun struct {
 	StallTimeout     time.Duration
 	ExpectedDuration time.Duration
 	ExpectedFrames   int64
-	ParseVMAF        bool
 	Progress         *ProgressDisplay
 }
 
 type FFMpegResult struct {
 	Stderr        string
-	VMAF          float64
-	HaveVMAF      bool
 	LastFrame     int64
 	FrameProgress bool
 }
@@ -146,24 +143,7 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 	readers.Add(1)
 	go func() {
 		defer readers.Done()
-		_, err := copyLines(stderr, &stderrBuf, func(line string) {
-			if !run.ParseVMAF {
-				return
-			}
-			const prefix = "VMAF score:"
-			idx := strings.Index(line, prefix)
-			if idx < 0 {
-				return
-			}
-			score, err := strconv.ParseFloat(strings.TrimSpace(line[idx+len(prefix):]), 64)
-			if err != nil {
-				return
-			}
-			mu.Lock()
-			res.VMAF = score
-			res.HaveVMAF = true
-			mu.Unlock()
-		})
+		_, err := copyLines(stderr, &stderrBuf, func(string) {})
 		if err != nil {
 			stderrErr = fmt.Errorf("read ffmpeg stderr: %w", err)
 			_ = cmd.Process.Kill()
@@ -197,9 +177,6 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 			mu.Unlock()
 			if err != nil {
 				return out, ffmpegWaitError(run.Role, err, out.Stderr, ctx.Err())
-			}
-			if run.ParseVMAF && !out.HaveVMAF {
-				return out, fmt.Errorf("%s: could not parse VMAF score\n%s", run.Role, strings.TrimSpace(out.Stderr))
 			}
 			return out, nil
 		case <-frameAdvanced:

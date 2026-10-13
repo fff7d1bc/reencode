@@ -2002,13 +2002,13 @@ func TestRunFFmpegDrainsOutputOnExit(t *testing.T) {
 			defer restore()
 			for range 10 {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				result, err := runFFmpeg(ctx, FFMpegRun{Role: "test score", ParseVMAF: true})
+				result, err := runFFmpeg(ctx, FFMpegRun{Role: "test score"})
 				cancel()
 				if result.LastFrame != 10000 || !strings.HasSuffix(result.Stderr, "VMAF score: 97.25\n") {
 					t.Fatalf("terminal output lost: frame=%d, stderr tail=%q", result.LastFrame, result.Stderr)
 				}
-				if mode == "score-exit" && (err != nil || !result.HaveVMAF || result.VMAF != 97.25) {
-					t.Fatalf("score=%v, have=%v, err=%v", result.VMAF, result.HaveVMAF, err)
+				if mode == "score-exit" && err != nil {
+					t.Fatalf("unexpected process error: %v", err)
 				}
 				if mode == "failure-exit" && (err == nil || !strings.Contains(err.Error(), "VMAF score: 97.25")) {
 					t.Fatalf("failure lost final diagnostic: %v", err)

@@ -209,6 +209,7 @@ func TestMediaIntegrationFractionalRateAndStartTime(t *testing.T) {
 	}
 	opts := defaultProbeOptions()
 	opts.Preset, opts.NoCache, opts.NoProgress = "11", true, true
+	opts.TempDir = filepath.Join(t.TempDir(), "VMAF's [reports], with spaces")
 	search := crfSearch{info: info, options: opts}
 	defer search.cleanupEncodedSamples()
 	sample, err := search.prepareSample(ctx, SampleFile{SourcePath: path, Start: 2123 * time.Millisecond, Duration: 1700 * time.Millisecond})

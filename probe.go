@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -35,15 +36,16 @@ type ProbeOptions struct {
 }
 
 type ProbeAttempt struct {
-	CRF              float64 `json:"crf"`
-	Score            float64 `json:"score"`
-	WorstSampleScore float64 `json:"worst_sample_score"`
-	EncodedPercent   float64 `json:"encoded_percent"`
-	PredictedSize    int64   `json:"predicted_size"`
-	EffectiveTarget  float64 `json:"effective_target,omitempty"`
-	OutlierChecked   bool    `json:"outlier_checked,omitempty"`
-	OutlierAccepted  bool    `json:"outlier_accepted,omitempty"`
-	OutlierScore     float64 `json:"outlier_score,omitempty"`
+	Samples          []SampleDiagnostics `json:"samples,omitempty"`
+	CRF              float64             `json:"crf"`
+	Score            float64             `json:"score"`
+	WorstSampleScore float64             `json:"worst_sample_score"`
+	EncodedPercent   float64             `json:"encoded_percent"`
+	PredictedSize    int64               `json:"predicted_size"`
+	EffectiveTarget  float64             `json:"effective_target,omitempty"`
+	OutlierChecked   bool                `json:"outlier_checked,omitempty"`
+	OutlierAccepted  bool                `json:"outlier_accepted,omitempty"`
+	OutlierScore     float64             `json:"outlier_score,omitempty"`
 
 	OutlierNeighborScores []float64 `json:"outlier_neighbor_scores,omitempty"`
 	// sampleScores is intentionally not exported to JSON. It is only needed
@@ -56,22 +58,23 @@ type ProbeAttempt struct {
 }
 
 type ProbeResult struct {
-	File             string         `json:"file"`
-	Success          bool           `json:"success"`
-	CRF              float64        `json:"crf,omitempty"`
-	TargetVMAF       float64        `json:"target_vmaf"`
-	FloorVMAF        float64        `json:"floor_vmaf"`
-	EffectiveTarget  float64        `json:"effective_target,omitempty"`
-	Score            float64        `json:"score,omitempty"`
-	WorstSampleScore float64        `json:"worst_sample_score,omitempty"`
-	EncodedPercent   float64        `json:"encoded_percent,omitempty"`
-	PredictedSize    int64          `json:"predicted_size,omitempty"`
-	OutlierChecked   bool           `json:"outlier_checked,omitempty"`
-	OutlierAccepted  bool           `json:"outlier_accepted,omitempty"`
-	OutlierScore     float64        `json:"outlier_score,omitempty"`
-	SamplePlan       SamplePlan     `json:"sample_plan"`
-	Attempts         []ProbeAttempt `json:"attempts"`
-	Error            string         `json:"error,omitempty"`
+	Samples          []SampleDiagnostics `json:"samples,omitempty"`
+	File             string              `json:"file"`
+	Success          bool                `json:"success"`
+	CRF              float64             `json:"crf,omitempty"`
+	TargetVMAF       float64             `json:"target_vmaf"`
+	FloorVMAF        float64             `json:"floor_vmaf"`
+	EffectiveTarget  float64             `json:"effective_target,omitempty"`
+	Score            float64             `json:"score,omitempty"`
+	WorstSampleScore float64             `json:"worst_sample_score,omitempty"`
+	EncodedPercent   float64             `json:"encoded_percent,omitempty"`
+	PredictedSize    int64               `json:"predicted_size,omitempty"`
+	OutlierChecked   bool                `json:"outlier_checked,omitempty"`
+	OutlierAccepted  bool                `json:"outlier_accepted,omitempty"`
+	OutlierScore     float64             `json:"outlier_score,omitempty"`
+	SamplePlan       SamplePlan          `json:"sample_plan"`
+	Attempts         []ProbeAttempt      `json:"attempts"`
+	Error            string              `json:"error,omitempty"`
 
 	OutlierNeighborScores []float64 `json:"outlier_neighbor_scores,omitempty"`
 }
@@ -156,6 +159,9 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 			continue
 		}
 		printProbeHuman(result)
+		if opts.Verbose {
+			printSampleDiagnostics(result.Samples)
+		}
 	}
 	return exitCode
 }
@@ -298,6 +304,7 @@ func seedProbeSessionAttempts(session *probeSession, result ProbeResult) {
 
 func probeAttemptFromResult(result ProbeResult) ProbeAttempt {
 	return ProbeAttempt{
+		Samples:               result.Samples,
 		CRF:                   result.CRF,
 		Score:                 result.Score,
 		WorstSampleScore:      result.WorstSampleScore,
@@ -322,6 +329,7 @@ func (s *probeSession) Run(ctx context.Context) (ProbeResult, error) {
 	s.result.CRF = best.CRF
 	s.result.EffectiveTarget = effectiveTarget
 	s.result.Score = best.Score
+	s.result.Samples = best.Samples
 	s.result.WorstSampleScore = best.WorstSampleScore
 	s.result.EncodedPercent = best.EncodedPercent
 	s.result.PredictedSize = best.PredictedSize
@@ -575,6 +583,7 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 	var totalEncodedBytes int64
 	var totalSampleDuration time.Duration
 	var sampleScores []float64
+	var diagnostics []SampleDiagnostics
 	video := buildVideoArgs(s.info, s.options.Preset, crf)
 	totalProbeOps := len(s.samples) * 2
 	completedProbeOps := 0
@@ -589,7 +598,7 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 			return ProbeAttempt{}, err
 		}
 		completedProbeOps++
-		score, err := s.scoreSample(ctx, sample, encoded, probeProgressScope(crf, completedProbeOps, totalProbeOps))
+		diagnostic, err := s.scoreSample(ctx, sample, encoded, probeProgressScope(crf, completedProbeOps, totalProbeOps))
 		if err != nil {
 			// scoreSample runs after a successful sample encode. Clean that
 			// sample here because encodeSample's failure cleanup no longer owns it.
@@ -599,6 +608,8 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 			return ProbeAttempt{}, err
 		}
 		completedProbeOps++
+		score := diagnostic.Score
+		diagnostics = append(diagnostics, diagnostic)
 		sampleScores = append(sampleScores, score)
 		if !s.options.KeepTemp {
 			_ = os.Remove(encoded)
@@ -609,6 +620,7 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 		totalSampleDuration += sample.measuredDuration()
 		if failed, reason := partialFloorFailure(sampleScores, s.options.FloorVMAF); failed {
 			attempt := s.partialAttempt(crf, scores, sampleScores, totalSampleBytes, totalEncodedBytes, totalSampleDuration, i+1, len(s.samples), reason)
+			attempt.Samples = diagnostics
 			s.attempts[q] = attempt
 			return attempt, nil
 		}
@@ -622,6 +634,7 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 		predictedSize = totalEncodedBytes
 	}
 	attempt := ProbeAttempt{
+		Samples:          diagnostics,
 		CRF:              crf,
 		Score:            summary.Mean,
 		WorstSampleScore: summary.Worst,
@@ -892,7 +905,7 @@ func (s *crfSearch) maybeConfirmOutlier(ctx context.Context, q int, target float
 		if err != nil {
 			return attempt, err
 		}
-		attempt.OutlierNeighborScores = append(attempt.OutlierNeighborScores, score)
+		attempt.OutlierNeighborScores = append(attempt.OutlierNeighborScores, score.Score)
 	}
 	attempt.OutlierAccepted = allScoresAtLeast(attempt.OutlierNeighborScores, s.options.FloorVMAF)
 	s.attempts[q] = attempt
@@ -1032,19 +1045,36 @@ func sampleEncodeArgs(video VideoArgs, sample SampleFile, dest string) []string 
 	return args
 }
 
-func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorted string, progress probeProgress) (float64, error) {
+func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorted string, progress probeProgress) (SampleDiagnostics, error) {
 	if sample.Timeline == nil {
-		return 0, fmt.Errorf("sample timeline was not prepared")
+		return SampleDiagnostics{}, fmt.Errorf("sample timeline was not prepared")
 	}
 	distortedTimeline, err := inspectTimeline(ctx, distorted, 0, 0, 0, true)
 	if err != nil {
-		return 0, err
+		return SampleDiagnostics{}, err
 	}
 	if err := validateTimelines(*sample.Timeline, distortedTimeline); err != nil {
-		return 0, err
+		return SampleDiagnostics{}, err
 	}
+	dir := s.options.TempDir
+	if dir == "" {
+		dir = filepath.Dir(sample.SourcePath)
+	}
+	logPath, err := reserveTempPath(dir, ".reencode-vmaf-*.json")
+	if err != nil {
+		return SampleDiagnostics{}, err
+	}
+	// Raw reports are scratch state, even with --keep-temp. Register cleanup
+	// before ffmpeg starts, including failures that still exit successfully.
+	defer os.Remove(logPath)
 	args := sampleScoreArgs(s.info, sample, distorted)
-	res, err := runFFmpeg(ctx, FFMpegRun{
+	for i := range args {
+		if args[i] == "-filter_complex" {
+			args[i+1] += ":log_fmt=json:log_path=" + escapeFilterOption(logPath)
+			break
+		}
+	}
+	report, err := runVMAFReport(ctx, FFMpegRun{
 		Role:             "sample vmaf",
 		File:             s.info.Path,
 		ScopeLabel:       progress.Label,
@@ -1054,16 +1084,18 @@ func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorte
 		StallTimeout:     s.options.StallTimeout,
 		ExpectedDuration: sample.Duration,
 		ExpectedFrames:   sample.Frames,
-		ParseVMAF:        true,
 		Progress:         s.options.Progress,
-	})
+	}, logPath, int(sample.Frames))
 	if err != nil {
-		return 0, err
+		return SampleDiagnostics{}, err
 	}
-	if res.LastFrame != sample.Frames {
-		return 0, fmt.Errorf("VMAF frame coverage mismatch: scored %d, expected %d", res.LastFrame, sample.Frames)
+	return diagnoseVMAF(report, *sample.Timeline), nil
+}
+
+func printSampleDiagnostics(samples []SampleDiagnostics) {
+	for _, sample := range samples {
+		fmt.Fprintf(os.Stderr, "  sample %.3fs (%0.3fs, %d frames): VMAF %.2f, frame p05 %.2f, worst %.3fs %.2f at %.3fs\n", sample.StartSeconds, sample.DurationSeconds, sample.Frames, sample.Score, sample.FrameP05, sample.WorstSecondDuration, sample.WorstSecondScore, sample.WorstSecondStart)
 	}
-	return res.VMAF, nil
 }
 
 func sampleScoreArgs(info MediaInfo, sample SampleFile, distorted string) []string {

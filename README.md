@@ -154,11 +154,20 @@ The VMAF scoring path is intentionally conservative:
 - timestamps are normalized before scoring
 - source and encoded samples use a shared pixel format
 - VMAF uses `pool=harmonic_mean`
+- scoring requires a complete libvmaf JSON report, not just a successful process
 - VMAF model selection is explicit and deterministic
 - normal sources use `vmaf_v0.6.1`
 - 4K-oriented sources use `vmaf_4k_v0.6.1`
 - low-resolution sources may be scaled for VMAF only
 - the final decision uses both a weighted mean score and a worst-sample floor.
+
+Probe JSON includes per-sample diagnostics. `--verbose` also prints them on
+stderr: sample coverage, harmonic score, the fifth percentile of frame scores,
+and the worst rolling one-second harmonic score and its source timestamp.
+For samples shorter than a second, the rolling diagnostic covers the available
+duration. It uses actual frame durations for VFR video. These diagnostics do
+not add quality gates. Raw scoring reports are temporary and are not retained
+by `--keep-temp`.
 
 `reencode` does not try to discover and use the newest installed VMAF model at
 runtime. Model choice changes the score, so automatic discovery would make

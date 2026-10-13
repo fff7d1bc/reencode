@@ -82,7 +82,7 @@ Options:
   --stall-timeout duration
       Kill ffmpeg if frame progress stalls. Zero disables it. Default: 10m.
   --verbose
-      Print extra details.
+      Print extra details, including per-sample quality diagnostics.
   --help
       Show this help.
 
@@ -132,7 +132,7 @@ Options:
   --stall-timeout duration
       Kill ffmpeg if frame progress stalls. Zero disables it. Default: 10m.
   --verbose
-      Print extra details.
+      Print extra details, including per-sample quality diagnostics.
   --help
       Show this help.
 `)
