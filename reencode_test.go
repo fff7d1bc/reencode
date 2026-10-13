@@ -55,6 +55,58 @@ func TestCandidateVideoByContentAcceptsMP4(t *testing.T) {
 	}
 }
 
+func TestCandidateVideoByContentQuickTime(t *testing.T) {
+	const quickTime = "\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00qt  "
+	const movieData = "\x00\x00\x00\x0cmdat\x00\x00\x00\x00"
+	tests := []struct {
+		name string
+		data string
+		want bool
+	}{
+		{"video.mov", quickTime, true},
+		{"video.MOV", quickTime, true},
+		{"no-extension", quickTime, true},
+		{"compatible-brand.mov", "\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isomqt  ", true},
+		{"legacy-moov.mov", "\x00\x00\x00\x10moov\x00\x00\x00\x08mvhd", true},
+		{"legacy-mdat.mov", movieData, true},
+		{"legacy-wide.mov", "\x00\x00\x00\x08wide" + movieData, true},
+		{"padding.mov", "\x00\x00\x00\x08free\x00\x00\x00\x08skip" + movieData, true},
+		{"extended-size.mov", "\x00\x00\x00\x01mdat\x00\x00\x00\x00\x00\x00\x00\x14data", true},
+		{"to-eof.mov", "\x00\x00\x00\x00mdatdata", true},
+		{"beyond-sniff-buffer.mov", "\x00\x00\x04\x08mdat" + strings.Repeat("\x00", 1024), true},
+		{"text.mov", "this is not a video", false},
+		{"image.mov", "\x89PNG\r\n\x1a\n", false},
+		{"empty.mov", "", false},
+		{"truncated-header.mov", "\x00\x00\x00\x14fty", false},
+		{"truncated-brand.mov", quickTime[:18], false},
+		{"missing-version.mov", "\x00\x00\x00\x0cftypqt  ", false},
+		{"short-size.mov", "\x00\x00\x00\x07moov", false},
+		{"empty-moov.mov", "\x00\x00\x00\x08moov", false},
+		{"past-eof.mov", "\x00\x00\x00\x20mdatdata", false},
+		{"truncated-extended-size.mov", "\x00\x00\x00\x01mdat\x00\x00\x00\x00", false},
+		{"short-extended-size.mov", "\x00\x00\x00\x01mdat\x00\x00\x00\x00\x00\x00\x00\x0c", false},
+		{"overflow-size.mov", "\x00\x00\x00\x01mdat\xff\xff\xff\xff\xff\xff\xff\xff", false},
+		{"padding-only.mov", "\x00\x00\x00\x08wide", false},
+		{"hidden-in-padding.mov", "\x00\x00\x00\x00free" + quickTime, false},
+		{"unrelated-brand.mov", "\x00\x00\x00\x14ftypheic\x00\x00\x00\x00heic" + movieData, false},
+		{"version-is-not-brand.mov", "\x00\x00\x00\x14ftypisomqt  isom", false},
+		{"brand-outside-atom.mov", "\x00\x00\x00\x10ftypisom\x00\x00\x00\x00qt  ", false},
+		{"unaligned-brand.mov", "\x00\x00\x00\x15ftypisom\x00\x00\x00\x00xqt  ", false},
+	}
+	dir := t.TempDir()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(dir, tt.name)
+			if err := os.WriteFile(path, []byte(tt.data), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := candidateVideoByContent(path); err != nil || got != tt.want {
+				t.Fatalf("candidateVideoByContent = %v, %v; want %v, nil", got, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestCandidateVideoByContentAcceptsWebM(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "video.bin")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,10 +95,57 @@ func candidateVideo(path string, forceVideo bool) (bool, error) {
 	if err != nil && !errors.Is(err, io.EOF) {
 		return false, err
 	}
-	// DetectContentType is a cheap stdlib prefilter, not a replacement for
-	// ffprobe. If it does not report video/* we skip the file instead of probing
-	// arbitrary images, text files, and sidecars from broad shell globs.
-	return strings.HasPrefix(http.DetectContentType(buf[:n]), "video/"), nil
+	// The stdlib sniffer recognizes MP4 but not QuickTime. Supplement it using
+	// the same bounded read, leaving stream and metadata validation to ffprobe.
+	return strings.HasPrefix(http.DetectContentType(buf[:n]), "video/") || hasQuickTimeSignature(buf[:n], stat.Size()), nil
+}
+
+func hasQuickTimeSignature(data []byte, fileSize int64) bool {
+	for len(data) >= 8 && fileSize >= 8 {
+		size := uint64(binary.BigEndian.Uint32(data[:4]))
+		headerSize := uint64(8)
+		switch size {
+		case 0:
+			size = uint64(fileSize)
+		case 1:
+			if len(data) < 16 {
+				return false
+			}
+			size = binary.BigEndian.Uint64(data[8:16])
+			headerSize = 16
+		}
+		if size < headerSize || size > uint64(fileSize) {
+			return false
+		}
+		switch string(data[4:8]) {
+		case "ftyp":
+			if size < headerSize+8 || size > uint64(len(data)) || (size-headerSize)%4 != 0 {
+				return false
+			}
+			for pos := headerSize; pos < size; pos += 4 {
+				// The second field is a version number, not a brand.
+				if pos != headerSize+4 && string(data[pos:pos+4]) == "qt  " {
+					return true
+				}
+			}
+			return false
+		case "moov", "mdat":
+			// Older MOV files may omit ftyp. These atoms also occur in
+			// audio-only files, which ffprobe rejects later for lack of video.
+			return size > headerSize
+		case "wide", "free", "skip":
+			// Skip leading padding only inside the sniff buffer. Never seek
+			// through the movie or read an atom-sized allocation to classify it.
+			if size > uint64(len(data)) {
+				return false
+			}
+			data = data[size:]
+			fileSize -= int64(size)
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 func probeMedia(path string) (MediaInfo, error) {

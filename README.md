@@ -63,10 +63,13 @@ it can leave a hidden `*.reencode-lock` directory. Remove that directory only
 after confirming that no matching `reencode` process is active.
 
 Inputs are skipped when built-in content sniffing does not identify them as
-video files. Inputs are also skipped when they are already `.mkv` files whose
-primary video codec is AV1. Use `--force-reencode` to bypass the already-AV1
-skip. Use `--skip-name TEXT` to skip inputs whose basename contains a marker
-you choose, such as `[reencoded]`. The option can be repeated.
+video files. Common QuickTime MOV headers are recognized regardless of filename
+extension. ffprobe must still confirm a valid video stream.
+
+Inputs are also skipped when they are already `.mkv` files whose primary video
+codec is AV1. Use `--force-reencode` to bypass the already-AV1 skip. Use
+`--skip-name TEXT` to skip inputs whose basename contains a marker you choose,
+such as `[reencoded]`. The option can be repeated.
 
 Some valid containers, including MPEG transport streams, are not recognized by
 the built-in sniffer. Use `--force-video` to send regular-file inputs directly
