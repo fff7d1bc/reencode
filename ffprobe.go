@@ -20,15 +20,20 @@ var errNotVideoFile = errors.New("not a video file")
 var errNoVideoStream = errors.New("no video stream found")
 
 type MediaInfo struct {
-	Path        string
-	Duration    time.Duration
-	FPS         float64
-	TotalFrames int64
-	VideoBytes  int64
-	VideoIndex  int
-	VideoCodec  string
-	PixelFormat string
-	HasAlpha    bool
+	Path           string
+	Duration       time.Duration
+	FPS            float64
+	TotalFrames    int64
+	VideoBytes     int64
+	VideoIndex     int
+	VideoCodec     string
+	PixelFormat    string
+	HasAlpha       bool
+	ColorTransfer  string
+	ColorPrimaries string
+	ColorSpace     string
+	ColorRange     string
+	HDR            string
 	// Width and Height describe decoded frames after FFmpeg's autorotation,
 	// so VMAF scaling and final validation use the same orientation as encoding.
 	Width   int
@@ -73,6 +78,15 @@ func probeInputMediaContextWithPolicy(ctx context.Context, path string, forceVid
 	if err != nil {
 		return info, err
 	}
+	if err := validateSourceVideo(info); err != nil {
+		return info, err
+	}
+	// Some containers expose HDR side data only after decoding. Inspect a
+	// bounded prefix before accepting inputs, including explicit-CRF runs.
+	info.HDR, err = inspectInitialHDR(ctx, path)
+	if err != nil {
+		return info, err
+	}
 	return info, validateSourceVideo(info)
 }
 
@@ -82,7 +96,74 @@ func validateSourceVideo(info MediaInfo) error {
 	if info.HasAlpha {
 		return fmt.Errorf("%s: primary video has alpha (transparency), which cannot be preserved", displayPath(info.Path))
 	}
+	if info.HDR != "" {
+		return fmt.Errorf("%s: primary video is HDR (%s), which is not supported", displayPath(info.Path), info.HDR)
+	}
 	return nil
+}
+
+type mediaSideData struct {
+	Type     string   `json:"side_data_type"`
+	Rotation *float64 `json:"rotation"`
+}
+
+type videoColorMetadata struct {
+	ColorTransfer  string          `json:"color_transfer"`
+	ColorPrimaries string          `json:"color_primaries"`
+	ColorSpace     string          `json:"color_space"`
+	ColorRange     string          `json:"color_range"`
+	SideData       []mediaSideData `json:"side_data_list"`
+}
+
+func (m videoColorMetadata) hdrReason() string {
+	switch strings.ToLower(m.ColorTransfer) {
+	case "smpte2084":
+		return "PQ"
+	case "arib-std-b67":
+		return "HLG"
+	}
+	for _, side := range m.SideData {
+		kind := strings.ToLower(side.Type)
+		if strings.Contains(kind, "dovi") || strings.Contains(kind, "dolby vision") ||
+			strings.Contains(kind, "hdr") || strings.Contains(kind, "smpte2094") ||
+			strings.Contains(kind, "mastering display") || strings.Contains(kind, "content light level") {
+			return side.Type
+		}
+	}
+	return ""
+}
+
+func inspectInitialHDR(parent context.Context, path string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-of", "json",
+		"-select_streams", "v:0", "-read_intervals", "%+#64", "-show_frames",
+		"-show_entries", "frame=color_transfer,color_primaries,color_space,color_range:frame_side_data=side_data_type", path).Output()
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("inspect initial video metadata for %s: %w", displayPath(path), ctx.Err())
+	}
+	if err != nil {
+		return "", fmt.Errorf("inspect initial video metadata for %s: %w", displayPath(path), err)
+	}
+	return parseInitialHDR(out)
+}
+
+func parseInitialHDR(data []byte) (string, error) {
+	var raw struct {
+		Frames []videoColorMetadata `json:"frames"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return "", fmt.Errorf("parse initial video metadata: %w", err)
+	}
+	if len(raw.Frames) == 0 {
+		return "", fmt.Errorf("cannot inspect initial decoded video metadata")
+	}
+	for _, frame := range raw.Frames {
+		if reason := frame.hdrReason(); reason != "" {
+			return reason, nil
+		}
+	}
+	return "", nil
 }
 
 func candidateVideoByContent(path string) (bool, error) {
@@ -204,6 +285,7 @@ func parseMediaInfo(path string, out []byte) (MediaInfo, error) {
 			Duration string `json:"duration"`
 		} `json:"format"`
 		Streams []struct {
+			videoColorMetadata
 			Index        int               `json:"index"`
 			CodecType    string            `json:"codec_type"`
 			CodecName    string            `json:"codec_name"`
@@ -213,10 +295,6 @@ func parseMediaInfo(path string, out []byte) (MediaInfo, error) {
 			Width        int               `json:"width"`
 			Height       int               `json:"height"`
 			Tags         map[string]string `json:"tags"`
-			SideData     []struct {
-				Type     string   `json:"side_data_type"`
-				Rotation *float64 `json:"rotation"`
-			} `json:"side_data_list"`
 		} `json:"streams"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
@@ -247,6 +325,11 @@ func parseMediaInfo(path string, out []byte) (MediaInfo, error) {
 			info.VideoIndex = s.Index
 			info.VideoCodec = s.CodecName
 			info.PixelFormat = s.PixFmt
+			info.ColorTransfer = s.ColorTransfer
+			info.ColorPrimaries = s.ColorPrimaries
+			info.ColorSpace = s.ColorSpace
+			info.ColorRange = s.ColorRange
+			info.HDR = s.hdrReason()
 			info.Width = s.Width
 			info.Height = s.Height
 			for _, side := range s.SideData {

@@ -82,6 +82,13 @@ probing or encoding. The AV1 output cannot preserve alpha, and VMAF cannot
 detect its loss. This safety check also applies with `--crf`, `--fallback-crf`,
 and `--force-video`. The source remains unchanged.
 
+Detected HDR inputs are also rejected, including PQ/HDR10, HLG, Dolby Vision,
+and HDR10+. The tool checks primary-stream metadata and a bounded prefix of
+decoded frames. VMAF's public models are SDR models, so neither `--crf` nor
+`--fallback-crf` bypasses this safety check. Missing or incorrect source metadata
+can prevent HDR detection. Ten-bit video and BT.2020 primaries alone are not
+classified as HDR.
+
 Inputs are also skipped when they are already `.mkv` files whose primary video
 codec is AV1. Use `--force-reencode` to bypass the already-AV1 skip. Use
 `--skip-name TEXT` to skip inputs whose basename contains a marker you choose,

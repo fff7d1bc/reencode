@@ -68,6 +68,40 @@ func TestMediaIntegrationRejectsAlpha(t *testing.T) {
 	}
 }
 
+func TestMediaIntegrationRejectsHDR(t *testing.T) {
+	requireMediaIntegration(t)
+	for _, transfer := range []string{"smpte2084", "arib-std-b67"} {
+		t.Run(transfer, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "hdr.mkv")
+			mediaFixture(t, "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24", "-t", "1",
+				"-vf", "setparams=color_trc="+transfer+":color_primaries=bt2020:colorspace=bt2020nc",
+				"-c:v", "libsvtav1", "-preset", "11", "-pix_fmt", "yuv420p10le", "-color_trc", transfer, "-color_primaries", "bt2020", path)
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			for _, mode := range []eligibilityMode{eligibilityProbe, eligibilityEncode} {
+				for _, opts := range []EncodeOptions{
+					{ProbeOptions: defaultProbeOptions()}, {CRFSet: true, CRF: 32},
+					{FallbackCRFSet: true, FallbackCRF: 32}, {GroupCRF: true},
+					{ProbeOptions: ProbeOptions{ForceVideo: true}},
+				} {
+					result := collectEligibleInputs(ctx, mode, []string{path}, opts)
+					if result.Fatal == nil || !strings.Contains(result.Fatal.Error(), "HDR") || len(result.Actionable) != 0 {
+						t.Fatalf("HDR accepted: %+v", result)
+					}
+				}
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || string(after) != string(before) {
+				t.Fatalf("source changed: %v", err)
+			}
+		})
+	}
+}
+
 func TestMediaIntegrationVariableFrameRate(t *testing.T) {
 	requireMediaIntegration(t)
 	path := filepath.Join(t.TempDir(), "vfr.mov")

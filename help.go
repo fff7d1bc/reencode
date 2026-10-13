@@ -28,6 +28,7 @@ func printEncodeHelp(w io.Writer) {
   reencode encode [options] FILE...
 
 Probe each input, encode directly to name_[e-av1].mkv, validate output, then remove the source.
+Detected HDR and video transparency are not supported, including with explicit CRF.
 
 Options:
   --preset string
@@ -93,6 +94,7 @@ func printProbeHelp(w io.Writer) {
   reencode probe [options] FILE...
 
 Probe videos and report selected CRF without final encoding.
+Detected HDR and video transparency are not supported.
 
 Options:
   --preset string
