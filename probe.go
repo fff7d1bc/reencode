@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -366,6 +365,7 @@ type crfSearch struct {
 	reportedTargetStops   map[int]bool
 	reportedAttemptHeader bool
 	encodedSamplePaths    []string
+	timelines             map[sampleWindowKey]frameTimeline
 }
 
 func (s *crfSearch) find(ctx context.Context) (ProbeAttempt, float64, error) {
@@ -580,6 +580,10 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 	completedProbeOps := 0
 
 	for i, sample := range s.samples {
+		sample, err := s.prepareSample(ctx, sample)
+		if err != nil {
+			return ProbeAttempt{}, err
+		}
 		encoded, encodedSize, err := s.encodeSample(ctx, video, sample, i+1, probeProgressScope(crf, completedProbeOps, totalProbeOps))
 		if err != nil {
 			return ProbeAttempt{}, err
@@ -599,10 +603,10 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 		if !s.options.KeepTemp {
 			_ = os.Remove(encoded)
 		}
-		scores = append(scores, sampleScore{Score: score, Duration: sample.Duration})
+		scores = append(scores, sampleScore{Score: score, Duration: sample.measuredDuration()})
 		totalSampleBytes += sample.SourceBytes
 		totalEncodedBytes += encodedSize
-		totalSampleDuration += sample.Duration
+		totalSampleDuration += sample.measuredDuration()
 		if failed, reason := partialFloorFailure(sampleScores, s.options.FloorVMAF); failed {
 			attempt := s.partialAttempt(crf, scores, sampleScores, totalSampleBytes, totalEncodedBytes, totalSampleDuration, i+1, len(s.samples), reason)
 			s.attempts[q] = attempt
@@ -613,7 +617,7 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 
 	encodedPercent := 100 * float64(totalEncodedBytes) / float64(totalSampleBytes)
 	predictedSize := int64(float64(totalEncodedBytes) * (s.info.Duration.Seconds() / totalSampleDuration.Seconds()))
-	if len(s.samples) == 1 && s.samples[0].Duration == s.info.Duration {
+	if len(s.samples) == 1 && s.samples[0].FullPass {
 		// Full-pass probes already encoded the whole video stream.
 		predictedSize = totalEncodedBytes
 	}
@@ -873,6 +877,10 @@ func (s *crfSearch) maybeConfirmOutlier(ctx context.Context, q int, target float
 	attempt.OutlierScore = attempt.sampleScores[idx]
 	video := buildVideoArgs(s.info, s.options.Preset, attempt.CRF)
 	for i, sample := range neighbors {
+		sample, err := s.prepareSample(ctx, sample)
+		if err != nil {
+			return attempt, err
+		}
 		encoded, _, err := s.encodeSample(ctx, video, sample, len(s.samples)+i+1, outlierProgressScope(attempt.CRF, i*2, len(neighbors)*2))
 		if err != nil {
 			return attempt, err
@@ -1011,10 +1019,13 @@ func (s *crfSearch) encodeSample(ctx context.Context, video VideoArgs, sample Sa
 func sampleEncodeArgs(video VideoArgs, sample SampleFile, dest string) []string {
 	args := []string{
 		"-y",
+		"-xerror",
 		"-ss", terseFloat(sample.Start.Seconds()),
 		"-i", sample.SourcePath,
-		"-frames:v", strconv.FormatInt(sample.Frames, 10),
 		"-map", "0:v:0",
+	}
+	if !sample.FullPass {
+		args = append(args, "-t", terseFloat(sample.Duration.Seconds()))
 	}
 	args = append(args, video.ffmpegArgs("-c:v")...)
 	args = append(args, "-an", "-sn", "-dn", dest)
@@ -1022,6 +1033,16 @@ func sampleEncodeArgs(video VideoArgs, sample SampleFile, dest string) []string 
 }
 
 func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorted string, progress probeProgress) (float64, error) {
+	if sample.Timeline == nil {
+		return 0, fmt.Errorf("sample timeline was not prepared")
+	}
+	distortedTimeline, err := inspectTimeline(ctx, distorted, 0, 0, 0, true)
+	if err != nil {
+		return 0, err
+	}
+	if err := validateTimelines(*sample.Timeline, distortedTimeline); err != nil {
+		return 0, err
+	}
 	args := sampleScoreArgs(s.info, sample, distorted)
 	res, err := runFFmpeg(ctx, FFMpegRun{
 		Role:             "sample vmaf",
@@ -1039,20 +1060,29 @@ func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorte
 	if err != nil {
 		return 0, err
 	}
+	if res.LastFrame != sample.Frames {
+		return 0, fmt.Errorf("VMAF frame coverage mismatch: scored %d, expected %d", res.LastFrame, sample.Frames)
+	}
 	return res.VMAF, nil
 }
 
 func sampleScoreArgs(info MediaInfo, sample SampleFile, distorted string) []string {
-	return []string{
+	args := []string{
+		"-xerror",
 		"-i", distorted,
 		"-ss", terseFloat(sample.Start.Seconds()),
+	}
+	if !sample.FullPass {
+		args = append(args, "-t", terseFloat(sample.Duration.Seconds()))
+	}
+	return append(args, []string{
 		"-i", sample.SourcePath,
 		"-filter_complex", vmafFilter(info),
-		"-frames:v", strconv.FormatInt(sample.Frames, 10),
+		"-fps_mode", "passthrough",
 		"-an", "-sn", "-dn",
 		"-f", "null",
 		nullOutputPath(),
-	}
+	}...)
 }
 
 func (s *crfSearch) cleanupEncodedSamples() {

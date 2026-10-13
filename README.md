@@ -131,6 +131,9 @@ For each file, probing does this:
 2. Choose sample windows from across the source. The default sample duration is
    `20s`. The sample count is chosen automatically from the input duration
    unless `--samples` is set.
+   Windows are bounded by playback time, not average-FPS frame estimates.
+   Full-pass probes run to EOF. Decoded frame timestamps are checked before
+   scoring, and measured window coverage weights scores and size estimates.
 3. Encode each sample window with the same SVT-AV1 settings used for the final
    encode, including preset, CRF, pixel format, keyframe interval, and SVT
    parameters.

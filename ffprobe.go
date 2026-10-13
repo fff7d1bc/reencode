@@ -22,6 +22,7 @@ var errNoVideoStream = errors.New("no video stream found")
 type MediaInfo struct {
 	Path           string
 	Duration       time.Duration
+	StartTime      time.Duration
 	FPS            float64
 	TotalFrames    int64
 	VideoBytes     int64
@@ -282,7 +283,8 @@ func parseMediaInfo(path string, out []byte) (MediaInfo, error) {
 			} `json:"flags"`
 		} `json:"pixel_formats"`
 		Format struct {
-			Duration string `json:"duration"`
+			Duration  string `json:"duration"`
+			StartTime string `json:"start_time"`
 		} `json:"format"`
 		Streams []struct {
 			videoColorMetadata
@@ -302,6 +304,13 @@ func parseMediaInfo(path string, out []byte) (MediaInfo, error) {
 	}
 
 	info := MediaInfo{Path: path, VideoIndex: -1}
+	if raw.Format.StartTime != "" && raw.Format.StartTime != "N/A" {
+		start, err := timestampDuration(raw.Format.StartTime)
+		if err != nil {
+			return info, fmt.Errorf("invalid media start time: %w", err)
+		}
+		info.StartTime = start
+	}
 	if raw.Format.Duration != "" {
 		seconds, err := strconv.ParseFloat(raw.Format.Duration, 64)
 		if err != nil {

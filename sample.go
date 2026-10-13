@@ -21,6 +21,8 @@ type SampleFile struct {
 	Duration    time.Duration
 	Frames      int64
 	SourceBytes int64
+	FullPass    bool
+	Timeline    *frameTimeline
 }
 
 func planSamples(info MediaInfo, requested int, sampleDuration time.Duration) SamplePlan {
@@ -90,6 +92,7 @@ func createSamples(info MediaInfo, plan SamplePlan) ([]SampleFile, error) {
 
 	if plan.FullPass {
 		return []SampleFile{{
+			FullPass:    true,
 			SourcePath:  info.Path,
 			Duration:    info.Duration,
 			Frames:      estimateFrameCount(info.Duration, info.FPS),

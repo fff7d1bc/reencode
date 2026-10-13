@@ -50,6 +50,9 @@ func (v VideoArgs) ffmpegArgs(codecOpt string) []string {
 		"-crf", terseFloat(v.ffmpegCRF()),
 		"-pix_fmt", v.PixFmt,
 		"-fps_mode", "passthrough",
+		// Preserve VFR timestamps instead of rounding them to 1/average FPS.
+		// Both sample and final encodes must use the source time base.
+		"-enc_time_base:v:0", "demux",
 	}
 	if v.Keyint > 0 {
 		args = append(args, "-g", strconv.Itoa(v.Keyint))

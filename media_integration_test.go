@@ -119,6 +119,24 @@ func TestMediaIntegrationVariableFrameRate(t *testing.T) {
 	if count, err := decodeVideoFrameCount(ctx, path, source, opts); err != nil || count != 192 {
 		t.Fatalf("fixture frame count = %d, %v", count, err)
 	}
+	search := crfSearch{info: source, options: opts}
+	defer search.cleanupEncodedSamples()
+	for _, window := range []struct {
+		start  time.Duration
+		frames int64
+	}{{2100 * time.Millisecond, 16}, {7100 * time.Millisecond, 48}} {
+		sample, err := search.prepareSample(ctx, SampleFile{SourcePath: path, Start: window.start, Duration: 2 * time.Second})
+		if err != nil || sample.Frames != window.frames {
+			t.Fatalf("VFR sample=%+v, %v", sample, err)
+		}
+		encoded, _, err := search.encodeSample(ctx, buildVideoArgs(source, opts.Preset, 32), sample, 1, probeProgress{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := search.scoreSample(ctx, sample, encoded, probeProgress{}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if code := runEncodeCommand(ctx, EncodeOptions{ProbeOptions: opts, CRFSet: true, CRF: 32}, []string{path}); code != 0 {
 		t.Fatalf("VFR encode failed: exit %d", code)
 	}
@@ -172,5 +190,39 @@ func TestMediaIntegrationRotation(t *testing.T) {
 				t.Fatalf("validated source not removed: %v", err)
 			}
 		})
+	}
+}
+
+func TestMediaIntegrationFractionalRateAndStartTime(t *testing.T) {
+	requireMediaIntegration(t)
+	path := filepath.Join(t.TempDir(), "shifted.mov")
+	mediaFixture(t, "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24000/1001", "-t", "6",
+		"-c:v", "mpeg4", "-q:v", "2", "-output_ts_offset", "5", path)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	info, err := probeInputMediaContext(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.StartTime != 5*time.Second {
+		t.Fatalf("fixture start=%s", info.StartTime)
+	}
+	opts := defaultProbeOptions()
+	opts.Preset, opts.NoCache, opts.NoProgress = "11", true, true
+	search := crfSearch{info: info, options: opts}
+	defer search.cleanupEncodedSamples()
+	sample, err := search.prepareSample(ctx, SampleFile{SourcePath: path, Start: 2123 * time.Millisecond, Duration: 1700 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sample.Frames != 41 {
+		t.Fatalf("fractional sample has %d frames", sample.Frames)
+	}
+	encoded, _, err := search.encodeSample(ctx, buildVideoArgs(info, opts.Preset, 32), sample, 1, probeProgress{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := search.scoreSample(ctx, sample, encoded, probeProgress{}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -2816,11 +2816,11 @@ func TestBuildVideoArgsClampSvtFFmpegCRFOnly(t *testing.T) {
 }
 
 func TestSampleEncodeArgsUseSourceWindow(t *testing.T) {
-	sample := SampleFile{SourcePath: "source.mkv", Start: 30 * time.Second, Frames: 300}
+	sample := SampleFile{SourcePath: "source.mkv", Start: 30 * time.Second, Duration: 10 * time.Second, Frames: 300}
 	video := VideoArgs{Codec: "libsvtav1", Preset: "4", CRF: 25.75, PixFmt: "yuv420p10le"}
 	args := sampleEncodeArgs(video, sample, "encoded.mkv")
 	joined := joinArgs(args)
-	for _, want := range []string{"-ss 30", "-i source.mkv", "-frames:v 300", "-map 0:v:0", "-c:v libsvtav1", "-crf 25.75", "-an -sn -dn encoded.mkv"} {
+	for _, want := range []string{"-ss 30", "-i source.mkv", "-t 10", "-map 0:v:0", "-c:v libsvtav1", "-crf 25.75", "-an -sn -dn encoded.mkv"} {
 		if !contains(joined, want) {
 			t.Fatalf("missing %q in %q", want, joined)
 		}
@@ -2832,10 +2832,10 @@ func TestSampleEncodeArgsUseSourceWindow(t *testing.T) {
 
 func TestSampleScoreArgsSeekReferenceSource(t *testing.T) {
 	info := MediaInfo{Width: 1920, Height: 1080}
-	sample := SampleFile{SourcePath: "source.mkv", Start: 30 * time.Second, Frames: 300}
+	sample := SampleFile{SourcePath: "source.mkv", Start: 30 * time.Second, Duration: 10 * time.Second, Frames: 300}
 	args := sampleScoreArgs(info, sample, "encoded.mkv")
 	joined := joinArgs(args)
-	for _, want := range []string{"-i encoded.mkv", "-ss 30", "-i source.mkv", "-filter_complex", "-frames:v 300", "libvmaf="} {
+	for _, want := range []string{"-i encoded.mkv", "-ss 30", "-i source.mkv", "-filter_complex", "-t 10", "libvmaf="} {
 		if !contains(joined, want) {
 			t.Fatalf("missing %q in %q", want, joined)
 		}
