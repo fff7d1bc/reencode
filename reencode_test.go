@@ -569,6 +569,66 @@ func TestValidateOutputInfoUsesBalancedTolerances(t *testing.T) {
 	}
 }
 
+func TestValidateOutputResolvesFrameEstimates(t *testing.T) {
+	originalInspect, originalCount := inspectFinalMedia, inspectFrameCount
+	defer func() { inspectFinalMedia, inspectFrameCount = originalInspect, originalCount }()
+	for _, tc := range []struct {
+		name         string
+		estimate     int64
+		decoded      int64
+		countErr     error
+		outputErr    error
+		invalidCodec bool
+		wantCalls    int
+		wantErr      bool
+	}{
+		{name: "matching estimates", estimate: 2400},
+		{name: "VFR mismatch", estimate: 3600, decoded: 2400, wantCalls: 2},
+		{name: "missing frames", estimate: 3600, decoded: 2300, wantCalls: 2, wantErr: true},
+		{name: "decode failure", estimate: 3600, countErr: errors.New("bad decode"), wantCalls: 1, wantErr: true},
+		{name: "output decode failure", estimate: 3600, outputErr: errors.New("bad output decode"), wantCalls: 2, wantErr: true},
+		{name: "cancelled count", estimate: 3600, countErr: context.Canceled, wantCalls: 1, wantErr: true},
+		{name: "invalid codec", estimate: 3600, invalidCodec: true, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := validationSourceInfo()
+			source.Path = "source.mov"
+			inspectFinalMedia = func(context.Context, string) (MediaInfo, error) {
+				output := validationOutputInfo()
+				output.TotalFrames = tc.estimate
+				if tc.invalidCodec {
+					output.VideoCodec = "h264"
+				}
+				return output, nil
+			}
+			calls := 0
+			inspectFrameCount = func(_ context.Context, path string, _ MediaInfo, _ ProbeOptions) (int64, error) {
+				calls++
+				if calls == 1 {
+					if path != source.Path {
+						t.Fatalf("counting source path %q", path)
+					}
+					return 2400, tc.countErr
+				}
+				if path != "output.mkv" {
+					t.Fatalf("counting output path %q", path)
+				}
+				return tc.decoded, tc.outputErr
+			}
+			err := validateOutput(context.Background(), "output.mkv", source, EncodeOptions{})
+			if (err != nil) != tc.wantErr || calls != tc.wantCalls {
+				t.Fatalf("error=%v, calls=%d, want error=%v, calls=%d", err, calls, tc.wantErr, tc.wantCalls)
+			}
+			if tc.countErr != nil && !errors.Is(err, tc.countErr) {
+				t.Fatalf("count error lost: %v", err)
+			}
+			if tc.outputErr != nil && !errors.Is(err, tc.outputErr) {
+				t.Fatalf("output count error lost: %v", err)
+			}
+		})
+	}
+}
+
 func TestEncodeOneWithCRFValidatesBeforeRemovingSource(t *testing.T) {
 	dir := t.TempDir()
 	inputPath := filepath.Join(dir, "movie.mkv")

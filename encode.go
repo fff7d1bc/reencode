@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -10,8 +11,10 @@ import (
 )
 
 var (
-	executeFinalFFmpeg = runFFmpeg
-	inspectFinalMedia  = probeMediaContext
+	executeFinalFFmpeg    = runFFmpeg
+	inspectFinalMedia     = probeMediaContext
+	inspectFrameCount     = decodeVideoFrameCount
+	errFrameCountMismatch = errors.New("frame count mismatch")
 )
 
 type EncodeOptions struct {
@@ -535,7 +538,22 @@ func validateOutput(ctx context.Context, path string, source MediaInfo, opts Enc
 	if err != nil {
 		return fmt.Errorf("validate output: %w", err)
 	}
-	if err := validateOutputInfo(source, info, opts); err != nil {
+	err = validateOutputInfo(source, info, opts)
+	if errors.Is(err, errFrameCountMismatch) {
+		// Matroska can report a nominal rate for VFR video where the source
+		// reported an average. Resolve conflicting estimates by decoding, not
+		// by weakening validation or making every encode pay for two extra scans.
+		sourceFrames, countErr := inspectFrameCount(ctx, source.Path, source, opts.ProbeOptions)
+		if countErr != nil {
+			return fmt.Errorf("validate source frame count: %w", countErr)
+		}
+		outputFrames, countErr := inspectFrameCount(ctx, path, info, opts.ProbeOptions)
+		if countErr != nil {
+			return fmt.Errorf("validate output frame count: %w", countErr)
+		}
+		err = validateFrameCounts(sourceFrames, outputFrames, source.FPS)
+	}
+	if err != nil {
 		return fmt.Errorf("validate output: %w", err)
 	}
 	return nil
@@ -559,17 +577,6 @@ func validateOutputInfo(source, output MediaInfo, opts EncodeOptions) error {
 	if durationDifference(source.Duration, output.Duration) > durationTolerance {
 		return fmt.Errorf("duration is %s, want %s within %s", output.Duration, source.Duration, durationTolerance)
 	}
-	frameTolerance := int64(math.Ceil(source.FPS * 2))
-	if relative := int64(math.Ceil(float64(source.TotalFrames) / 100)); relative > frameTolerance {
-		frameTolerance = relative
-	}
-	if frameTolerance < 1 {
-		frameTolerance = 1
-	}
-	if int64Difference(source.TotalFrames, output.TotalFrames) > frameTolerance {
-		return fmt.Errorf("estimated frame count is %d, want %d within %d", output.TotalFrames, source.TotalFrames, frameTolerance)
-	}
-
 	expected := expectedOutputStreams(source, opts)
 	if len(output.Streams) != len(expected) {
 		return fmt.Errorf("stream count is %d, want %d", len(output.Streams), len(expected))
@@ -583,7 +590,33 @@ func validateOutputInfo(source, output MediaInfo, opts EncodeOptions) error {
 			return fmt.Errorf("stream %d codec is %s, want %s", i, got.CodecName, want.CodecName)
 		}
 	}
+	return validateFrameCounts(source.TotalFrames, output.TotalFrames, source.FPS)
+}
+
+func validateFrameCounts(source, output int64, fps float64) error {
+	frameTolerance := max(int64(1), int64(math.Ceil(fps*2)), int64(math.Ceil(float64(source)/100)))
+	if source <= 0 || output <= 0 || int64Difference(source, output) > frameTolerance {
+		return fmt.Errorf("%w: got %d, want %d within %d", errFrameCountMismatch, output, source, frameTolerance)
+	}
 	return nil
+}
+
+func decodeVideoFrameCount(ctx context.Context, path string, info MediaInfo, opts ProbeOptions) (int64, error) {
+	result, err := runFFmpeg(ctx, FFMpegRun{
+		Role: "validate frames", File: path,
+		Args: []string{"-xerror", "-noautorotate", "-i", path,
+			"-map", fmt.Sprintf("0:%d", info.VideoIndex),
+			"-fps_mode", "passthrough", "-f", "null", "-"},
+		StallTimeout: opts.StallTimeout, Progress: opts.Progress,
+		ExpectedDuration: info.Duration, ExpectedFrames: info.TotalFrames,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if !result.FrameProgress || result.LastFrame <= 0 {
+		return 0, fmt.Errorf("%s: no decoded video frame count", displayPath(path))
+	}
+	return result.LastFrame, nil
 }
 
 func expectedOutputStreams(source MediaInfo, opts EncodeOptions) []StreamInfo {

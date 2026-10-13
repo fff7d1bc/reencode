@@ -39,6 +39,9 @@ Final ffmpeg decoding and filtering errors are fatal. Before publishing,
 `reencode` verifies AV1 video, source dimensions, mapped stream layout, and
 duration and estimated frame counts within the greater of one percent or two
 seconds. Validation failure keeps the source and removes the unfinished output.
+When frame estimates disagree, both files are decoded to count frames before
+deciding. This extra check handles variable-frame-rate files whose reported
+frame rate changes between containers, but can make validation take longer.
 
 Final encode keeps the mapped source order for video, audio, subtitle, and
 attachment streams. The primary video becomes AV1. FLAC audio streams are

@@ -66,3 +66,36 @@ func TestMediaIntegrationRejectsAlpha(t *testing.T) {
 		t.Fatalf("unexpected outputs: %v, %v", entries, err)
 	}
 }
+
+func TestMediaIntegrationVariableFrameRate(t *testing.T) {
+	requireMediaIntegration(t)
+	path := filepath.Join(t.TempDir(), "vfr.mov")
+	mediaFixture(t, "-f", "lavfi", "-i", "testsrc2=size=160x96:rate=24", "-t", "12",
+		"-vf", `select=if(lt(t\,6)\,not(mod(n\,3))\,1)`, "-fps_mode", "vfr",
+		"-c:v", "mpeg4", "-q:v", "2", path)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	opts := defaultProbeOptions()
+	opts.Preset, opts.NoCache, opts.NoProgress = "12", true, true
+	source, err := probeInputMediaContext(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, err := decodeVideoFrameCount(ctx, path, source, opts); err != nil || count != 192 {
+		t.Fatalf("fixture frame count = %d, %v", count, err)
+	}
+	if code := runEncodeCommand(ctx, EncodeOptions{ProbeOptions: opts, CRFSet: true, CRF: 32}, []string{path}); code != 0 {
+		t.Fatalf("VFR encode failed: exit %d", code)
+	}
+	outputPath := outputPathFor(path)
+	output, err := probeMediaContext(ctx, outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, err := decodeVideoFrameCount(ctx, outputPath, output, opts); err != nil || count != 192 {
+		t.Fatalf("output frame count = %d, %v", count, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("validated source not removed: %v", err)
+	}
+}
