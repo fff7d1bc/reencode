@@ -91,6 +91,7 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 	frameAdvanced := make(chan struct{}, 1)
 	var stderrBuf tailBuffer
 	var readers sync.WaitGroup
+	var stdoutErr, stderrErr error
 
 	readers.Add(1)
 	go func() {
@@ -135,12 +136,17 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 				progress.Update(state)
 			}
 		}
+		if err := scanner.Err(); err != nil {
+			stdoutErr = fmt.Errorf("read ffmpeg progress: %w", err)
+			// A failed reader must not leave ffmpeg blocked writing to its pipe.
+			_ = cmd.Process.Kill()
+		}
 	}()
 
 	readers.Add(1)
 	go func() {
 		defer readers.Done()
-		_, _ = copyLines(stderr, &stderrBuf, func(line string) {
+		_, err := copyLines(stderr, &stderrBuf, func(line string) {
 			if !run.ParseVMAF {
 				return
 			}
@@ -158,13 +164,20 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 			res.HaveVMAF = true
 			mu.Unlock()
 		})
+		if err != nil {
+			stderrErr = fmt.Errorf("read ffmpeg stderr: %w", err)
+			_ = cmd.Process.Kill()
+		}
 	}()
 
 	waitErr := make(chan error, 1)
 	go func() {
-		err := cmd.Wait()
+		// Wait closes StdoutPipe and StderrPipe. Drain both first, including
+		// the final VMAF score emitted just before ffmpeg exits. Cancellation
+		// and stall detection still kill the process and unblock these reads.
 		readers.Wait()
-		waitErr <- err
+		err := cmd.Wait()
+		waitErr <- errors.Join(stdoutErr, stderrErr, err)
 		close(done)
 	}()
 

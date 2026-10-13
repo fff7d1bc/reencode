@@ -1891,6 +1891,55 @@ func TestRunFFmpegStallsBeforeFirstFrame(t *testing.T) {
 	}
 }
 
+func TestRunFFmpegDrainsOutputOnExit(t *testing.T) {
+	for _, mode := range []string{"score-exit", "failure-exit"} {
+		t.Run(mode, func(t *testing.T) {
+			restore := useFFmpegHelperProcess(t, mode)
+			defer restore()
+			for range 10 {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				result, err := runFFmpeg(ctx, FFMpegRun{Role: "test score", ParseVMAF: true})
+				cancel()
+				if result.LastFrame != 10000 || !strings.HasSuffix(result.Stderr, "VMAF score: 97.25\n") {
+					t.Fatalf("terminal output lost: frame=%d, stderr tail=%q", result.LastFrame, result.Stderr)
+				}
+				if mode == "score-exit" && (err != nil || !result.HaveVMAF || result.VMAF != 97.25) {
+					t.Fatalf("score=%v, have=%v, err=%v", result.VMAF, result.HaveVMAF, err)
+				}
+				if mode == "failure-exit" && (err == nil || !strings.Contains(err.Error(), "VMAF score: 97.25")) {
+					t.Fatalf("failure lost final diagnostic: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestRunFFmpegStopsOnReaderError(t *testing.T) {
+	for _, mode := range []string{"oversized-stdout", "oversized-stderr"} {
+		t.Run(mode, func(t *testing.T) {
+			restore := useFFmpegHelperProcess(t, mode)
+			defer restore()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, err := runFFmpeg(ctx, FFMpegRun{Role: "test encode"})
+			if err == nil || !strings.Contains(err.Error(), "token too long") || ctx.Err() != nil {
+				t.Fatalf("reader failure was not propagated promptly: %v", err)
+			}
+		})
+	}
+}
+
+func TestRunFFmpegCancellationDrainsReaders(t *testing.T) {
+	restore := useFFmpegHelperProcess(t, "hang")
+	defer restore()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := runFFmpeg(ctx, FFMpegRun{Role: "test encode"})
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "interrupted") {
+		t.Fatalf("cancellation error = %v", err)
+	}
+}
+
 func TestRunFFmpegResetsStallTimerOnIncreasingFrames(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test helper requires a POSIX shell")
@@ -1946,6 +1995,21 @@ func TestFFmpegHelperProcess(t *testing.T) {
 			fmt.Println("frame=1")
 			time.Sleep(30 * time.Millisecond)
 		}
+	case "score-exit", "failure-exit":
+		for frame := 1; frame <= 10000; frame++ {
+			fmt.Printf("frame=%d\n", frame)
+			fmt.Fprintln(os.Stderr, "filter diagnostic")
+		}
+		fmt.Fprintln(os.Stderr, "VMAF score: 97.25")
+		if os.Getenv("FFMPEG_HELPER_MODE") == "failure-exit" {
+			os.Exit(1)
+		}
+	case "oversized-stdout":
+		fmt.Print(strings.Repeat("x", 2*1024*1024))
+		time.Sleep(10 * time.Second)
+	case "oversized-stderr":
+		fmt.Fprint(os.Stderr, strings.Repeat("x", 2*1024*1024))
+		time.Sleep(10 * time.Second)
 	default:
 		t.Fatalf("unknown helper mode")
 	}
