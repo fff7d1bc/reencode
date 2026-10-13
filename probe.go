@@ -61,6 +61,8 @@ type ProbeAttempt struct {
 }
 
 type ProbeResult struct {
+	CacheHit         bool                `json:"cache_hit"`
+	Timing           ProbeTiming         `json:"timing"`
 	Tune             string              `json:"tune"`
 	Model            VMAFModelInfo       `json:"model"`
 	Runtime          RuntimeVersions     `json:"runtime"`
@@ -215,9 +217,15 @@ func probeFile(ctx context.Context, opts ProbeOptions, file string, keepSession 
 		result.FloorVMAF = opts.FloorVMAF
 		return result, nil, nil, err
 	}
+	return probeMediaFile(ctx, opts, info, keepSession)
+}
+
+func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keepSession bool) (ProbeResult, *probeSession, *probeCacheHandle, error) {
+	file := info.Path
+	var err error
 	opts.runtime, err = checkScoringRuntime(ctx, opts, resolveVMAFModel(opts, info))
 	if err != nil {
-		return ProbeResult{File: file}, nil, nil, err
+		return ProbeResult{File: file, Tune: opts.Tune, Model: resolveVMAFModel(opts, info), TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF}, nil, nil, err
 	}
 	cache, err := prepareProbeCache(ctx, opts, file, info)
 	if err != nil {
@@ -333,6 +341,9 @@ func probeAttemptFromResult(result ProbeResult) ProbeAttempt {
 
 func (s *probeSession) Run(ctx context.Context) (ProbeResult, error) {
 	best, effectiveTarget, err := s.search.find(ctx)
+	s.result.Timing = s.search.timing
+	s.result.CacheHit = false
+	s.result.Runtime = s.search.options.runtime
 	s.result.Attempts = s.search.sortedAttempts()
 	if err != nil {
 		return s.result, err
@@ -388,6 +399,7 @@ type crfSearch struct {
 	encodedSamplePaths    []string
 	timelines             map[sampleWindowKey]frameTimeline
 	modelPath             string
+	timing                ProbeTiming
 }
 
 func (s *crfSearch) find(ctx context.Context) (ProbeAttempt, float64, error) {
@@ -1017,6 +1029,8 @@ func (s *crfSearch) encodeSample(ctx context.Context, video VideoArgs, sample Sa
 		}
 	}()
 	args := sampleEncodeArgs(video, sample, dest)
+	started := time.Now()
+	defer func() { s.timing.EncodeSeconds += time.Since(started).Seconds() }()
 	if _, err := runFFmpeg(ctx, FFMpegRun{
 		Role:             "sample encode",
 		File:             s.info.Path,
@@ -1103,6 +1117,7 @@ func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorte
 			break
 		}
 	}
+	started := time.Now()
 	report, err := runVMAFReport(ctx, FFMpegRun{
 		Role:             "sample vmaf",
 		File:             s.info.Path,
@@ -1115,6 +1130,7 @@ func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorte
 		ExpectedFrames:   sample.Frames,
 		Progress:         s.options.Progress,
 	}, logPath, int(sample.Frames))
+	s.timing.ScoreSeconds += time.Since(started).Seconds()
 	if err != nil {
 		return SampleDiagnostics{}, err
 	}

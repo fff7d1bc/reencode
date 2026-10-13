@@ -239,6 +239,26 @@ results are written as JSONL on stdout.
 `probe` accepts the same shared probing options as `encode`, plus `--json` for
 machine-readable output.
 
+### `compare`
+
+```sh
+reencode compare --no-cache file.mkv
+reencode compare --tunes psnr,vq,vmaf --json file.mkv
+```
+
+`compare` defaults to `--vmaf-profiles legacy,v1` and `--tunes psnr`. It runs
+independent CRF searches on the same inspected source and sample-window policy.
+The table reports CRF, effective target, quality diagnostics, predicted size,
+and total sample-encoding and scoring time across each search. JSONL writes
+one object per input in input order, with individual results for every
+profile/tune combination. Failures are reported without hiding other rows.
+
+Cache hits are labelled and their timings are cleared. Use `--no-cache` to
+measure fresh searches. These are search costs, not predicted final-encode
+times, and different searches may evaluate different numbers of CRFs. VMAF
+scores from different model families are not interchangeable. Compare never
+publishes final outputs or removes sources. Other shared probe options apply.
+
 ## Options
 
 ### Shared By `encode` And `probe`

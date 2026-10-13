@@ -23,6 +23,17 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "compare":
+		if wantsHelp(os.Args[2:]) {
+			printCompareHelp(os.Stdout)
+			return
+		}
+		opts, files, err := parseCompareArgs(os.Args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Exit(runCompareCommand(ctx, opts, files))
 	case "help", "--help", "-h", "-help":
 		printHelp(os.Args[2:])
 		return
@@ -60,10 +71,19 @@ func main() {
 }
 
 func parseProbeArgs(args []string) (ProbeOptions, []string, error) {
+	return parseProbeCommandArgs(args, nil)
+}
+
+func parseProbeCommandArgs(args []string, comparison *CompareOptions) (ProbeOptions, []string, error) {
 	opts := defaultProbeOptions()
 	fs := flag.NewFlagSet("probe", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() { printProbeHelp(os.Stderr) }
+	if comparison != nil {
+		fs.Usage = func() { printCompareHelp(os.Stderr) }
+		fs.StringVar(&comparison.profiles, "vmaf-profiles", "legacy,v1", "comma-separated VMAF profiles")
+		fs.StringVar(&comparison.tunes, "tunes", "psnr", "comma-separated encoder tunes")
+	}
 	fs.StringVar(&opts.Preset, "preset", opts.Preset, "SVT-AV1 preset")
 	fs.StringVar(&opts.Tune, "tune", opts.Tune, "SVT-AV1 tune: psnr, vq, or vmaf")
 	fs.StringVar(&opts.VMAFProfile, "vmaf-profile", opts.VMAFProfile, "VMAF profile: v1 or legacy")
@@ -91,6 +111,17 @@ func parseProbeArgs(args []string) (ProbeOptions, []string, error) {
 	}
 	opts.SampleDuration = sampleDuration.value
 	opts.StallTimeout = stallTimeout.value
+	if comparison != nil {
+		var incompatible string
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "tune" || f.Name == "vmaf-profile" {
+				incompatible = f.Name
+			}
+		})
+		if incompatible != "" {
+			return ProbeOptions{}, nil, fmt.Errorf("compare uses --tunes and --vmaf-profiles, not --%s", incompatible)
+		}
+	}
 	if err := validateProbeOptions(opts); err != nil {
 		return ProbeOptions{}, nil, err
 	}
@@ -101,7 +132,7 @@ func parseProbeArgs(args []string) (ProbeOptions, []string, error) {
 		opts.Progress = NewProgressDisplay(opts.NoProgress)
 	}
 	if fs.NArg() == 0 {
-		printProbeHelp(os.Stderr)
+		fs.Usage()
 		return ProbeOptions{}, nil, fmt.Errorf("missing FILE")
 	}
 	return opts, fs.Args(), nil
@@ -180,6 +211,8 @@ func printHelp(args []string) {
 		return
 	}
 	switch args[0] {
+	case "compare":
+		printCompareHelp(os.Stdout)
 	case "licenses":
 		license, err := vmafAssets.ReadFile("models/LICENSE")
 		if err != nil {

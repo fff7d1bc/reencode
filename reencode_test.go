@@ -2913,8 +2913,8 @@ func TestVMAFFilterDefault1080p(t *testing.T) {
 	info := MediaInfo{Width: 1920, Height: 1080}
 	got := vmafFilter(info)
 	for _, want := range []string{
-		"[0:v]format=yuv420p10le,setpts=PTS-STARTPTS,settb=AVTB[dis];",
-		"[1:v]format=yuv420p10le,setpts=PTS-STARTPTS,settb=AVTB[ref];",
+		"[0:v]format=yuv420p10le,setpts=PTS-STARTPTS,settb=AVTB,setpts=N[dis];",
+		"[1:v]format=yuv420p10le,setpts=PTS-STARTPTS,settb=AVTB,setpts=N[ref];",
 		"[dis][ref]libvmaf=shortest=true:ts_sync_mode=nearest:pool=harmonic_mean:",
 	} {
 		if !contains(got, want) {

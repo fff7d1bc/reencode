@@ -5,16 +5,39 @@ import (
 	"io"
 )
 
+func printCompareHelp(w io.Writer) {
+	fmt.Fprint(w, `Usage:
+  reencode compare [options] FILE...
+
+Compare independent CRF searches on the same sample windows. Never final-encode
+or remove inputs. JSONL writes one object per input, in input order.
+
+  --vmaf-profiles legacy,v1
+      Comma-separated profiles. Default: legacy,v1.
+  --tunes psnr,vq,vmaf
+      Comma-separated encoder tunes. Default: psnr.
+  --json
+      Emit JSONL instead of a human table.
+
+Other probe options apply, except --tune and --vmaf-profile (use the lists).
+Use --no-cache for fresh measurements. Times cover all sample encode/scoring
+attempts, not final-output performance. Cached rows have no fresh timing.
+See 'reencode help probe' for shared options.
+`)
+}
+
 func printTopHelp(w io.Writer) {
 	fmt.Fprint(w, `Usage:
   reencode encode [options] FILE...
   reencode probe [options] FILE...
+  reencode compare [options] FILE...
   reencode help [command]
   reencode help licenses
 
 Commands:
   encode    Probe and encode videos to AV1 MKV outputs.
   probe     Probe videos and report selected CRF without final encoding.
+  compare   Compare VMAF profiles and encoder tunes without final encoding.
   help      Show this help or command-specific help.
 
 Examples:

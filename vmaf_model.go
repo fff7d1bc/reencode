@@ -36,7 +36,7 @@ type RuntimeVersions struct {
 }
 
 func resolveVMAFModel(opts ProbeOptions, info MediaInfo) VMAFModelInfo {
-	m := VMAFModelInfo{Profile: opts.VMAFProfile, PixelFormat: defaultVMAFPixFmt, Pool: "harmonic_mean", EncodingWidth: info.Width, EncodingHeight: info.Height, EncodingBitDepth: 10, Policy: 1}
+	m := VMAFModelInfo{Profile: opts.VMAFProfile, PixelFormat: defaultVMAFPixFmt, Pool: "harmonic_mean", EncodingWidth: info.Width, EncodingHeight: info.Height, EncodingBitDepth: 10, Policy: 2}
 	if m.Profile == "legacy" {
 		m.ID = vmafModelVersion(info)
 		m.Scale = vmafScaleFilter(info.Width, info.Height)

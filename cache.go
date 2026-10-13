@@ -184,6 +184,10 @@ func loadProbeCache(handle *probeCacheHandle, currentPath string) (ProbeResult, 
 	// The cache is content-addressed enough to survive renames. Return the path
 	// the user passed today so progress, summaries, and JSON refer to it.
 	result.File = currentPath
+	result.CacheHit = true
+	// Cached durations describe a previous run and must not masquerade as
+	// timings for the current comparison.
+	result.Timing = ProbeTiming{}
 	return result, true, nil
 }
 

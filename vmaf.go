@@ -63,12 +63,13 @@ func vmafFilter(info MediaInfo) string {
 
 func configuredVMAFFilter(scale, model string) string {
 	format := "format=" + defaultVMAFPixFmt + ","
-	// Reset timestamps on both inputs. Without this, seeking source windows can
-	// make libvmaf compare non-matching frames even though the decoded content
-	// is otherwise correct.
+	// Timelines are validated before scoring. Pair those frames by index after
+	// resetting timestamps so Matroska's millisecond rounding cannot make
+	// shortest=true discard the last reference frame. Quality diagnostics keep
+	// the original timestamps and durations, not this scoring-only clock.
 	prefix := fmt.Sprintf(
-		"[0:v]%s%ssetpts=PTS-STARTPTS,settb=AVTB[dis];"+
-			"[1:v]%s%ssetpts=PTS-STARTPTS,settb=AVTB[ref];"+
+		"[0:v]%s%ssetpts=PTS-STARTPTS,settb=AVTB,setpts=N[dis];"+
+			"[1:v]%s%ssetpts=PTS-STARTPTS,settb=AVTB,setpts=N[ref];"+
 			"[dis][ref]",
 		format, scale,
 		format, scale,
