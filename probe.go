@@ -1074,6 +1074,10 @@ func sampleEncodeArgs(video VideoArgs, sample SampleFile, dest string) []string 
 }
 
 func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorted string, progress probeProgress) (SampleDiagnostics, error) {
+	return s.scoreWindow(ctx, sample, distorted, nil, progress)
+}
+
+func (s *crfSearch) scoreWindow(ctx context.Context, sample SampleFile, distorted string, final *finalScoreWindow, progress probeProgress) (SampleDiagnostics, error) {
 	model := resolveVMAFModel(s.options, s.info)
 	if s.options.runtime.LibVMAF == "" {
 		versions, err := checkScoringRuntime(ctx, s.options, model)
@@ -1092,12 +1096,21 @@ func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorte
 	if sample.Timeline == nil {
 		return SampleDiagnostics{}, fmt.Errorf("sample timeline was not prepared")
 	}
-	distortedTimeline, err := inspectTimeline(ctx, distorted, 0, 0, 0, true)
+	var distortedTimeline frameTimeline
+	var err error
+	if final == nil {
+		distortedTimeline, err = inspectTimeline(ctx, distorted, 0, 0, 0, true)
+	} else {
+		distortedTimeline, err = inspectTimeline(ctx, distorted, final.Origin, final.Start, final.Duration, sample.FullPass)
+	}
 	if err != nil {
 		return SampleDiagnostics{}, err
 	}
 	if err := validateTimelines(*sample.Timeline, distortedTimeline); err != nil {
 		return SampleDiagnostics{}, err
+	}
+	if final != nil && durationDifference(distortedTimeline.Start-final.Offset, sample.Timeline.Start) > 2*time.Millisecond {
+		return SampleDiagnostics{}, fmt.Errorf("final sample begins at a different source frame")
 	}
 	dir := s.options.TempDir
 	if dir == "" {
@@ -1111,6 +1124,14 @@ func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorte
 	// before ffmpeg starts, including failures that still exit successfully.
 	defer os.Remove(logPath)
 	args := sampleScoreArgs(s.info, sample, distorted)
+	role := "sample vmaf"
+	if final != nil {
+		role = "final quality"
+		if !sample.FullPass {
+			// Input-side cuts decode the actual output without re-encoding it.
+			args = append([]string{"-ss", terseFloat(final.Start.Seconds()), "-t", terseFloat(final.Duration.Seconds())}, args...)
+		}
+	}
 	for i := range args {
 		if args[i] == "-filter_complex" {
 			args[i+1] = model.filter(s.modelPath) + ":log_fmt=json:log_path=" + escapeFilterOption(logPath)
@@ -1119,7 +1140,7 @@ func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorte
 	}
 	started := time.Now()
 	report, err := runVMAFReport(ctx, FFMpegRun{
-		Role:             "sample vmaf",
+		Role:             role,
 		File:             s.info.Path,
 		ScopeLabel:       progress.Label,
 		ScopeDone:        progress.Done,

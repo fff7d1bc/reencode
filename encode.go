@@ -14,6 +14,7 @@ var (
 	executeFinalFFmpeg    = runFFmpeg
 	inspectFinalMedia     = probeMediaContext
 	inspectFrameCount     = decodeVideoFrameCount
+	verifyEncodedQuality  = verifyFinalQuality
 	errFrameCountMismatch = errors.New("frame count mismatch")
 )
 
@@ -23,6 +24,7 @@ type EncodeOptions struct {
 	GroupCRF         bool
 	Overwrite        bool
 	KeepSource       bool
+	VerifyQuality    bool
 	ForceReencode    bool
 	NoAudioTranscode bool
 	LogFile          string
@@ -105,7 +107,7 @@ func encodeFFmpegRequirements(opts EncodeOptions) ffmpegRequirements {
 		return ffmpegRequirements{}
 	}
 	req := ffmpegRequirements{SVTAV1: true}
-	if !opts.CRFSet {
+	if !opts.CRFSet || opts.VerifyQuality {
 		req.VMAF = true
 	}
 	return req
@@ -137,6 +139,13 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 		return err
 	}
 	info := input.Info
+	if opts.VerifyQuality && !opts.DryRun {
+		versions, err := checkScoringRuntime(ctx, opts.ProbeOptions, resolveVMAFModel(opts.ProbeOptions, info))
+		if err != nil {
+			return err
+		}
+		opts.ProbeOptions.runtime = versions
+	}
 	sourceSize := fileSize(file)
 	output := input.Output
 	if output == "" {
@@ -190,6 +199,14 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 	}
 	if err := validateOutput(ctx, tmp, info, opts); err != nil {
 		return err
+	}
+	if opts.VerifyQuality {
+		if err := verifyEncodedQuality(ctx, opts.ProbeOptions, info, tmp, probe); err != nil {
+			return fmt.Errorf("final quality verification failed: %w", err)
+		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if err := verifySourceSnapshot(file, input.Source); err != nil {
 		return err

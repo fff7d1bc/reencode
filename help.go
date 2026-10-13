@@ -101,6 +101,8 @@ Options:
       Overwrite existing output files.
   --keep-source
       Retain the source after successful encoding.
+  --verify-quality
+      Score final-output sample windows before publishing. No automatic retry.
   --force-reencode
       Encode even when input is already .mkv with AV1 video.
   --no-audio-transcode

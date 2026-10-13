@@ -51,6 +51,20 @@ Display-matrix rotation is applied by ffmpeg during sample and final encoding.
 Probing and validation use the resulting orientation, including swapped width
 and height for portrait videos carrying a 90° or 270° rotation.
 
+For an additional quality gate, use `encode --verify-quality`. After structural
+validation it scores the actual temporary final output against the original,
+using the planned sample windows, selected VMAF profile, effective target, and
+sample floor. With explicit or fallback CRF, it uses `--target-vmaf`. A borderline
+outlier must be confirmed again on neighboring windows of the final output.
+This is sampled assurance, not a full-video quality guarantee. Small files whose
+probe plan is full-pass are scored to EOF.
+
+Failed quality, incomplete scores, timestamp misalignment, or interruption
+prevents publication and source removal. An existing output is preserved and
+the failed final temp is removed even with `--keep-temp`. No automatic lower-CRF
+retry is attempted. Verification is off by default and requires libvmaf even
+with `--crf`. `--dry-run` does not run final verification.
+
 Final encode keeps the mapped source order for video, audio, subtitle, and
 attachment streams. The primary video becomes AV1. FLAC audio streams are
 converted to Opus at `256000` bps while other mapped codecs are copied. Data and
@@ -312,6 +326,8 @@ probing.
   FLAC to Opus.
 - `--dry-run`: print the final ffmpeg command without encoding.
 - `--keep-source`: retain the original after successful validation and publication.
+- `--verify-quality`: verify sampled quality of the actual final encode before
+  publication. Default: off.
 - `--log-file PATH`: append before/after size records.
 
 ### `probe` Only
