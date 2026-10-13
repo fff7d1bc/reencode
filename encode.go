@@ -113,6 +113,9 @@ func encodeOne(ctx context.Context, opts EncodeOptions, input eligibleInput) err
 }
 
 func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInput, crf float64, probe *ProbeResult) (retErr error) {
+	if err := validateSourceVideo(input.Info); err != nil {
+		return err
+	}
 	file := input.File
 	if err := verifySourceSnapshot(file, input.Source); err != nil {
 		return err

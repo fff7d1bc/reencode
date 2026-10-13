@@ -28,6 +28,7 @@ type MediaInfo struct {
 	VideoIndex  int
 	VideoCodec  string
 	PixelFormat string
+	HasAlpha    bool
 	Width       int
 	Height      int
 	Streams     []StreamInfo
@@ -66,7 +67,20 @@ func probeInputMediaContextWithPolicy(ctx context.Context, path string, forceVid
 	// Eligibility checks can run several ffprobe processes in parallel. Thread
 	// the command context through this path so Ctrl-C can stop the check phase
 	// instead of waiting for every queued input to finish.
-	return probeMediaContext(ctx, path)
+	info, err := probeMediaContext(ctx, path)
+	if err != nil {
+		return info, err
+	}
+	return info, validateSourceVideo(info)
+}
+
+func validateSourceVideo(info MediaInfo) error {
+	// Neither our output pixel format nor VMAF preserves alpha. Reject it
+	// before probing, including explicit/fallback CRF paths that bypass VMAF.
+	if info.HasAlpha {
+		return fmt.Errorf("%s: primary video has alpha (transparency), which cannot be preserved", displayPath(info.Path))
+	}
+	return nil
 }
 
 func candidateVideoByContent(path string) (bool, error) {
@@ -158,6 +172,8 @@ func probeMediaContext(ctx context.Context, path string) (MediaInfo, error) {
 		"-print_format", "json",
 		"-show_format",
 		"-show_streams",
+		"-show_pixel_formats",
+		"-show_entries", "pixel_format=name:pixel_format_flags=alpha:component=",
 		path,
 	)
 	out, err := cmd.Output()
@@ -171,7 +187,17 @@ func probeMediaContext(ctx context.Context, path string) (MediaInfo, error) {
 		return MediaInfo{}, fmt.Errorf("ffprobe %s: %w", displayPath(path), err)
 	}
 
+	return parseMediaInfo(path, out)
+}
+
+func parseMediaInfo(path string, out []byte) (MediaInfo, error) {
 	var raw struct {
+		PixelFormats []struct {
+			Name  string `json:"name"`
+			Flags struct {
+				Alpha *int `json:"alpha"`
+			} `json:"flags"`
+		} `json:"pixel_formats"`
 		Format struct {
 			Duration string `json:"duration"`
 		} `json:"format"`
@@ -226,6 +252,29 @@ func probeMediaContext(ctx context.Context, path string) (MediaInfo, error) {
 	}
 	if !info.HasVideo() {
 		return info, fmt.Errorf("%s: %w", displayPath(path), errNoVideoStream)
+	}
+	alphaKnown := false
+	for _, format := range raw.PixelFormats {
+		if format.Name == info.PixelFormat && format.Flags.Alpha != nil {
+			alphaKnown = true
+			info.HasAlpha = *format.Flags.Alpha != 0
+			break
+		}
+	}
+	if !alphaKnown {
+		return info, fmt.Errorf("%s: cannot determine alpha support for pixel format %q", displayPath(path), info.PixelFormat)
+	}
+	// Some codecs expose alpha as container side data rather than in pix_fmt
+	// (notably VP8/VP9 in WebM), so also honor the stream's alpha marker.
+	for _, stream := range raw.Streams {
+		if stream.Index == info.VideoIndex {
+			for key, value := range stream.Tags {
+				if strings.EqualFold(key, "alpha_mode") && strings.TrimSpace(value) != "0" {
+					info.HasAlpha = true
+				}
+			}
+			break
+		}
 	}
 	if info.Duration <= 0 {
 		return info, fmt.Errorf("%s: missing or invalid video duration", displayPath(path))

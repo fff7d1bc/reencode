@@ -32,6 +32,52 @@ func TestParseFrameRate(t *testing.T) {
 	}
 }
 
+func TestParseMediaInfoAlpha(t *testing.T) {
+	for _, tc := range []struct {
+		name, format, tags string
+		flag               int
+		wantAlpha          bool
+	}{
+		{"opaque", "yuv420p", `{}`, 0, false},
+		{"packed alpha", "argb", `{}`, 1, true},
+		{"planar alpha", "gbrap12le", `{}`, 1, true},
+		{"palette alpha", "pal8", `{}`, 1, true},
+		{"container alpha", "yuv420p", `{"ALPHA_MODE":"1"}`, 0, true},
+		{"no container alpha", "yuv420p", `{"alpha_mode":"0"}`, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := fmt.Sprintf(`{"format":{"duration":"3"},"streams":[
+				{"index":0,"codec_type":"video","codec_name":"test","pix_fmt":%q,"avg_frame_rate":"24/1","tags":%s},
+				{"index":1,"codec_type":"video","codec_name":"test","pix_fmt":"argb","tags":{"ALPHA_MODE":"1"}}
+			],"pixel_formats":[{"name":%q,"flags":{"alpha":%d}}]}`, tc.format, tc.tags, tc.format, tc.flag)
+			info, err := parseMediaInfo("movie.mov", []byte(data))
+			if err != nil || info.HasAlpha != tc.wantAlpha {
+				t.Fatalf("alpha = %v, err = %v, want %v", info.HasAlpha, err, tc.wantAlpha)
+			}
+			if err := validateSourceVideo(info); (err != nil) != tc.wantAlpha {
+				t.Fatalf("source validation = %v", err)
+			}
+		})
+	}
+	data := []byte(`{"format":{"duration":"3"},"streams":[{"index":0,"codec_type":"video","codec_name":"test","pix_fmt":"unknown","avg_frame_rate":"24/1"}]}`)
+	if _, err := parseMediaInfo("movie.mov", data); err == nil || !strings.Contains(err.Error(), "cannot determine alpha") {
+		t.Fatalf("unknown alpha support must fail closed: %v", err)
+	}
+}
+
+func TestEncodeOneWithCRFRejectsAlpha(t *testing.T) {
+	original := executeFinalFFmpeg
+	defer func() { executeFinalFFmpeg = original }()
+	executeFinalFFmpeg = func(context.Context, FFMpegRun) (FFMpegResult, error) {
+		t.Fatal("alpha input reached final encoding")
+		return FFMpegResult{}, nil
+	}
+	input := eligibleInput{Info: MediaInfo{Path: "alpha.mov", HasAlpha: true}}
+	if err := encodeOneWithCRF(context.Background(), EncodeOptions{}, input, 32, nil); err == nil || !strings.Contains(err.Error(), "alpha") {
+		t.Fatalf("alpha input error = %v", err)
+	}
+}
+
 func TestCandidateVideoByContentAcceptsMP4(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "no-extension")

@@ -66,6 +66,11 @@ Inputs are skipped when built-in content sniffing does not identify them as
 video files. Common QuickTime MOV headers are recognized regardless of filename
 extension. ffprobe must still confirm a valid video stream.
 
+Inputs whose primary video carries alpha (transparency) are rejected before
+probing or encoding. The AV1 output cannot preserve alpha, and VMAF cannot
+detect its loss. This safety check also applies with `--crf`, `--fallback-crf`,
+and `--force-video`. The source remains unchanged.
+
 Inputs are also skipped when they are already `.mkv` files whose primary video
 codec is AV1. Use `--force-reencode` to bypass the already-AV1 skip. Use
 `--skip-name TEXT` to skip inputs whose basename contains a marker you choose,
@@ -363,6 +368,13 @@ Run the test suite and build the local binary with:
 ```sh
 make test
 make build
+```
+
+To also run real-media regression tests, install the runtime ffmpeg and ffprobe
+requirements and run:
+
+```sh
+REENCODE_INTEGRATION=1 make test
 ```
 
 The binary is written to:
