@@ -436,6 +436,15 @@ func TestVerifyDestinationSnapshotDetectsChanges(t *testing.T) {
 }
 
 func TestPublishOutputDoesNotReplaceUnexpectedDestination(t *testing.T) {
+	for _, overwrite := range []bool{false, true} {
+		t.Run(fmt.Sprintf("overwrite=%v", overwrite), func(t *testing.T) {
+			testPublishOutputDoesNotReplaceUnexpectedDestination(t, overwrite)
+		})
+	}
+}
+
+func testPublishOutputDoesNotReplaceUnexpectedDestination(t *testing.T, overwrite bool) {
+	t.Helper()
 	dir := t.TempDir()
 	tmp := filepath.Join(dir, "temp.mkv")
 	output := filepath.Join(dir, "output.mkv")
@@ -445,7 +454,7 @@ func TestPublishOutputDoesNotReplaceUnexpectedDestination(t *testing.T) {
 	if err := os.WriteFile(output, []byte("existing"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := publishOutput(tmp, output, destinationSnapshot{}, true); err == nil {
+	if err := publishOutput(tmp, output, destinationSnapshot{}, overwrite); err == nil {
 		t.Fatal("no-replace publication should fail")
 	}
 	got, err := os.ReadFile(output)
@@ -454,6 +463,27 @@ func TestPublishOutputDoesNotReplaceUnexpectedDestination(t *testing.T) {
 	}
 	if string(got) != "existing" {
 		t.Fatalf("destination content = %q", got)
+	}
+	if got, err := os.ReadFile(tmp); err != nil || string(got) != "new" {
+		t.Fatalf("temporary output changed on failed publication: %q, %v", got, err)
+	}
+}
+
+func TestPublishOutputCreatesAbsentDestination(t *testing.T) {
+	dir := t.TempDir()
+	tmp := filepath.Join(dir, "temp.mkv")
+	output := filepath.Join(dir, "output.mkv")
+	if err := os.WriteFile(tmp, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishOutput(tmp, output, destinationSnapshot{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(output); err != nil || string(got) != "new" {
+		t.Fatalf("published output = %q, %v", got, err)
+	}
+	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+		t.Fatalf("temporary output remains: %v", err)
 	}
 }
 
