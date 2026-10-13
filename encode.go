@@ -45,6 +45,15 @@ func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) i
 		return 1
 	}
 	printEligibilityStart(files, false)
+	if !opts.DryRun || !opts.CRFSet {
+		if _, err := checkEncoderTune(ctx, opts.ProbeOptions); err != nil {
+			if ctx.Err() != nil {
+				return 130
+			}
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
 	eligibility := collectEligibleInputs(ctx, eligibilityEncode, files, opts)
 	if eligibility.Fatal != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", eligibility.Fatal)
@@ -144,7 +153,7 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 		return err
 	}
 
-	video := buildVideoArgs(info, opts.ProbeOptions.Preset, crf)
+	video := buildVideoArgs(info, opts.ProbeOptions.Preset, crf, opts.ProbeOptions.Tune)
 	mapArgs, audioArgs, dropped := streamArgs(info, opts)
 	for _, stream := range dropped {
 		fmt.Fprintf(os.Stderr, "%s: dropping unsupported stream %d (%s)\n", displayPath(file), stream.Index, stream.Type)
@@ -271,6 +280,7 @@ type metadataTag struct {
 
 func reencodeMetadataArgs(video VideoArgs, opts ProbeOptions, probe *ProbeResult) []string {
 	tags := []metadataTag{
+		{"REENCODE_TUNE", video.Tune},
 		{"REENCODE_OUTPUT_CODEC", "av1"},
 		{"REENCODE_ENCODER", video.Codec},
 		{"REENCODE_PRESET", video.Preset},
@@ -495,6 +505,7 @@ func groupProbeMetadata(input groupInput, opts ProbeOptions, crf float64) *Probe
 		return nil
 	}
 	return &ProbeResult{
+		Tune:             opts.Tune,
 		Model:            input.Session.result.Model,
 		Runtime:          input.Session.result.Runtime,
 		Samples:          attempt.Samples,

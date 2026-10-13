@@ -16,6 +16,7 @@ const (
 )
 
 type VideoArgs struct {
+	Tune   string
 	Codec  string
 	Preset string
 	CRF    float64
@@ -24,7 +25,11 @@ type VideoArgs struct {
 	SCD    bool
 }
 
-func buildVideoArgs(info MediaInfo, preset string, crf float64) VideoArgs {
+func buildVideoArgs(info MediaInfo, preset string, crf float64, tunes ...string) VideoArgs {
+	tune := "psnr"
+	if len(tunes) != 0 && tunes[0] != "" {
+		tune = tunes[0]
+	}
 	keyint := 0
 	scd := false
 	if info.Duration >= 3*time.Minute && info.FPS > 0 {
@@ -34,6 +39,7 @@ func buildVideoArgs(info MediaInfo, preset string, crf float64) VideoArgs {
 		scd = true
 	}
 	return VideoArgs{
+		Tune:   tune,
 		Codec:  "libsvtav1",
 		Preset: preset,
 		CRF:    crf,
@@ -61,8 +67,19 @@ func (v VideoArgs) ffmpegArgs(codecOpt string) []string {
 	if v.SCD {
 		scd = "1"
 	}
-	args = append(args, "-svtav1-params", "scd="+scd+":crf="+terseFloat(v.CRF))
+	args = append(args, "-svtav1-params", "scd="+scd+":crf="+terseFloat(v.CRF)+":tune="+strconv.Itoa(tuneNumber(v.Tune)))
 	return args
+}
+
+func tuneNumber(tune string) int {
+	switch tune {
+	case "vq":
+		return 0
+	case "vmaf":
+		return 5
+	default:
+		return 1
+	}
 }
 
 func (v VideoArgs) ffmpegCRF() float64 {

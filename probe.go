@@ -14,6 +14,7 @@ import (
 )
 
 type ProbeOptions struct {
+	Tune              string
 	VMAFProfile       string
 	runtime           RuntimeVersions
 	Preset            string
@@ -60,6 +61,7 @@ type ProbeAttempt struct {
 }
 
 type ProbeResult struct {
+	Tune             string              `json:"tune"`
 	Model            VMAFModelInfo       `json:"model"`
 	Runtime          RuntimeVersions     `json:"runtime"`
 	Samples          []SampleDiagnostics `json:"samples,omitempty"`
@@ -271,6 +273,7 @@ type probeSession struct {
 func newProbeSession(opts ProbeOptions, info MediaInfo) (*probeSession, error) {
 	plan := planSamples(info, opts.Samples, opts.SampleDuration)
 	result := ProbeResult{
+		Tune:       opts.Tune,
 		Model:      resolveVMAFModel(opts, info),
 		Runtime:    opts.runtime,
 		File:       info.Path,
@@ -595,7 +598,7 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 	var totalSampleDuration time.Duration
 	var sampleScores []float64
 	var diagnostics []SampleDiagnostics
-	video := buildVideoArgs(s.info, s.options.Preset, crf)
+	video := buildVideoArgs(s.info, s.options.Preset, crf, s.options.Tune)
 	totalProbeOps := len(s.samples) * 2
 	completedProbeOps := 0
 
@@ -899,7 +902,7 @@ func (s *crfSearch) maybeConfirmOutlier(ctx context.Context, q int, target float
 	// before forcing the entire file to a lower CRF.
 	attempt.OutlierChecked = true
 	attempt.OutlierScore = attempt.sampleScores[idx]
-	video := buildVideoArgs(s.info, s.options.Preset, attempt.CRF)
+	video := buildVideoArgs(s.info, s.options.Preset, attempt.CRF, s.options.Tune)
 	for i, sample := range neighbors {
 		sample, err := s.prepareSample(ctx, sample)
 		if err != nil {

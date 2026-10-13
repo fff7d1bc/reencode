@@ -65,6 +65,7 @@ func parseProbeArgs(args []string) (ProbeOptions, []string, error) {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() { printProbeHelp(os.Stderr) }
 	fs.StringVar(&opts.Preset, "preset", opts.Preset, "SVT-AV1 preset")
+	fs.StringVar(&opts.Tune, "tune", opts.Tune, "SVT-AV1 tune: psnr, vq, or vmaf")
 	fs.StringVar(&opts.VMAFProfile, "vmaf-profile", opts.VMAFProfile, "VMAF profile: v1 or legacy")
 	fs.BoolVar(&opts.JSON, "json", false, "emit JSONL results")
 	fs.Float64Var(&opts.TargetVMAF, "target-vmaf", opts.TargetVMAF, "target VMAF")
@@ -113,6 +114,7 @@ func parseEncodeArgs(args []string) (EncodeOptions, []string, error) {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() { printEncodeHelp(os.Stderr) }
 	fs.StringVar(&opts.ProbeOptions.Preset, "preset", probeOpts.Preset, "SVT-AV1 preset")
+	fs.StringVar(&opts.ProbeOptions.Tune, "tune", probeOpts.Tune, "SVT-AV1 tune: psnr, vq, or vmaf")
 	fs.StringVar(&opts.ProbeOptions.VMAFProfile, "vmaf-profile", probeOpts.VMAFProfile, "VMAF profile: v1 or legacy")
 	fs.Float64Var(&opts.ProbeOptions.TargetVMAF, "target-vmaf", probeOpts.TargetVMAF, "target VMAF for probing")
 	fs.Float64Var(&opts.ProbeOptions.FloorVMAF, "vmaf-floor", probeOpts.FloorVMAF, "lowest acceptable VMAF for probing")
@@ -228,6 +230,9 @@ func (v *durationValue) Set(s string) error {
 }
 
 func validateProbeOptions(opts ProbeOptions) error {
+	if opts.Tune != "psnr" && opts.Tune != "vq" && opts.Tune != "vmaf" {
+		return fmt.Errorf("--tune must be psnr, vq, or vmaf")
+	}
 	if opts.VMAFProfile != "v1" && opts.VMAFProfile != "legacy" {
 		return fmt.Errorf("--vmaf-profile must be v1 or legacy")
 	}

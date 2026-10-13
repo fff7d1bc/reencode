@@ -122,7 +122,11 @@ func detectScoringRuntime(ctx context.Context, opts ProbeOptions, model VMAFMode
 	if model.Profile == "v1" && model.EncodingWidth < 216 && model.EncodingHeight < 216 {
 		return RuntimeVersions{}, fmt.Errorf("VMAF v1 CAMBI requires at least one encoded dimension >= 216 pixels; use --vmaf-profile legacy for this input")
 	}
-	key := model.ID
+	encoderVersion, err := checkEncoderTune(ctx, opts)
+	if err != nil {
+		return RuntimeVersions{}, err
+	}
+	key := model.ID + "/" + opts.Tune + "/" + opts.Preset
 	scoringRuntimeCache.Lock()
 	defer scoringRuntimeCache.Unlock()
 	if versions, ok := scoringRuntimeCache.versions[key]; ok {
@@ -165,7 +169,7 @@ func detectScoringRuntime(ctx context.Context, opts ProbeOptions, model VMAFMode
 	if report.SVTVersion == "" {
 		return RuntimeVersions{}, fmt.Errorf("cannot determine actual SVT-AV1 runtime version")
 	}
-	versions := RuntimeVersions{LibVMAF: report.Version, SVTAV1: report.SVTVersion}
+	versions := RuntimeVersions{LibVMAF: report.Version, SVTAV1: encoderVersion}
 	scoringRuntimeCache.versions[key] = versions
 	return versions, nil
 }

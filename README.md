@@ -249,6 +249,12 @@ because final encoding uses the same probe engine unless `--crf` bypasses
 probing.
 
 - `--preset N`: use a different SVT-AV1 preset. Default: `4`.
+- `--tune psnr|vq|vmaf`: encoder tuning, explicitly `psnr` by default. The
+  mapping is SVT tune 1, 0, and 5 respectively. A small startup encode checks
+  support before processing inputs. Probe and final settings always match,
+  and tune is recorded in JSON, MKV metadata, and the cache key. VMAF tuning
+  optimizes the encoder objective, it does not select the scoring model or
+  replace visual inspection.
 - `--vmaf-profile v1|legacy`: select the scoring model family. Default: `v1`.
 - `--target-vmaf N`: weighted mean VMAF target. Default: `95`.
 - `--vmaf-floor N`: worst-sample floor. Default: `94`.

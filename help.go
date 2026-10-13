@@ -34,6 +34,8 @@ Detected HDR and video transparency are not supported, including with explicit C
 Options:
   --preset string
       SVT-AV1 preset. Default: 4.
+  --tune string
+      SVT-AV1 tune: psnr (default), vq, or vmaf. Requires encoder support.
   --vmaf-profile string
       VMAF profile: v1 (default, libvmaf 3.2.1+) or legacy.
   --target-vmaf float
@@ -102,6 +104,8 @@ Detected HDR and video transparency are not supported.
 Options:
   --preset string
       SVT-AV1 preset. Default: 4.
+  --tune string
+      SVT-AV1 tune: psnr (default), vq, or vmaf. Requires encoder support.
   --vmaf-profile string
       VMAF profile: v1 (default, libvmaf 3.2.1+) or legacy.
   --json
