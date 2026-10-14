@@ -64,7 +64,15 @@ func compareList(value, name string, allowed []string) ([]string, error) {
 var compareProbe = probeMediaFile
 
 func compareInput(ctx context.Context, opts CompareOptions, info MediaInfo) CompareResult {
+	defer info.facts.releaseWindows()
 	result := CompareResult{File: info.Path, SamplePlan: planSamples(info, opts.ProbeOptions.Samples, opts.ProbeOptions.SampleDuration)}
+	var err error
+	info, err = ensureInputReady(ctx, opts.ProbeOptions, info)
+	if err != nil {
+		result.Error = err.Error()
+		result.Preparation = info.preparation
+		return result
+	}
 	result.Preparation = info.preparation
 	info.preparation = ProbeTiming{}
 	for _, profile := range opts.Profiles {

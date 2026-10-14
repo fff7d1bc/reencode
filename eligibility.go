@@ -182,9 +182,17 @@ func classifyEligibilityInput(ctx context.Context, mode eligibilityMode, file st
 			return eligibilityEntry{File: file, Info: info, Skipped: true, SkipReason: skip.Reason}
 		}
 	}
+	info.framesValidated = false
+	if info.facts == nil {
+		info.facts = &sourceFacts{source: source, timelines: make(map[sampleWindowKey]frameTimeline)}
+	}
 	// Skip decisions need only metadata. Decode the HDR prefix only for files
 	// we may actually process, including forced reencodes and explicit CRF.
-	info, err = validateInputFrames(ctx, info)
+	if opts.ProbeOptions.InputChecks == "per-file" {
+		err = validateSourceVideo(info)
+	} else {
+		info, err = validateInputFrames(ctx, info)
+	}
 	if err == nil {
 		// The retained metadata belongs to this exact source snapshot. Reuse it
 		// later only while identity, size, and mtime still match.

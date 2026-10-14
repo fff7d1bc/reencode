@@ -763,13 +763,14 @@ func TestEncodeOneWithCRFKeepsSourceWhenValidationFails(t *testing.T) {
 
 func validationSourceInfo() MediaInfo {
 	return MediaInfo{
-		Duration:    100 * time.Second,
-		FPS:         24,
-		TotalFrames: 2400,
-		VideoIndex:  0,
-		VideoCodec:  "h264",
-		Width:       1920,
-		Height:      1080,
+		framesValidated: true,
+		Duration:        100 * time.Second,
+		FPS:             24,
+		TotalFrames:     2400,
+		VideoIndex:      0,
+		VideoCodec:      "h264",
+		Width:           1920,
+		Height:          1080,
 		Streams: []StreamInfo{
 			{Index: 0, Type: "video", CodecName: "h264"},
 			{Index: 1, Type: "audio", CodecName: "flac"},

@@ -37,6 +37,10 @@ type EncodeOptions struct {
 
 func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) int {
 	defer commandTimer(opts.ProbeOptions)()
+	if err := validateEncodeOptions(opts); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	if ctx.Err() != nil {
 		return 130
 	}
@@ -118,7 +122,13 @@ func encodeFFmpegRequirements(opts EncodeOptions) ffmpegRequirements {
 }
 
 func encodeOne(ctx context.Context, opts EncodeOptions, input eligibleInput) error {
+	defer input.Info.facts.releaseWindows()
 	if err := verifySourceSnapshot(input.File, input.Source); err != nil {
+		return err
+	}
+	var err error
+	input.Info, err = ensureInputReady(ctx, opts.ProbeOptions, input.Info)
+	if err != nil {
 		return err
 	}
 	if opts.CRFSet {
@@ -132,6 +142,7 @@ func encodeOne(ctx context.Context, opts EncodeOptions, input eligibleInput) err
 }
 
 func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInput, crf float64, probe *ProbeResult) (retErr error) {
+	defer input.Info.facts.releaseWindows()
 	if err := validateSourceVideo(input.Info); err != nil {
 		return err
 	}
@@ -140,6 +151,11 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 	}
 	file := input.File
 	if err := verifySourceSnapshot(file, input.Source); err != nil {
+		return err
+	}
+	var err error
+	input.Info, err = ensureInputReady(ctx, opts.ProbeOptions, input.Info)
+	if err != nil {
 		return err
 	}
 	info := input.Info

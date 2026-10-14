@@ -20,23 +20,24 @@ var errNotVideoFile = errors.New("not a video file")
 var errNoVideoStream = errors.New("no video stream found")
 
 type MediaInfo struct {
-	preparation    ProbeTiming
-	facts          *sourceFacts
-	Path           string
-	Duration       time.Duration
-	StartTime      time.Duration
-	FPS            float64
-	TotalFrames    int64
-	VideoBytes     int64
-	VideoIndex     int
-	VideoCodec     string
-	PixelFormat    string
-	HasAlpha       bool
-	ColorTransfer  string
-	ColorPrimaries string
-	ColorSpace     string
-	ColorRange     string
-	HDR            string
+	framesValidated bool
+	preparation     ProbeTiming
+	facts           *sourceFacts
+	Path            string
+	Duration        time.Duration
+	StartTime       time.Duration
+	FPS             float64
+	TotalFrames     int64
+	VideoBytes      int64
+	VideoIndex      int
+	VideoCodec      string
+	PixelFormat     string
+	HasAlpha        bool
+	ColorTransfer   string
+	ColorPrimaries  string
+	ColorSpace      string
+	ColorRange      string
+	HDR             string
 	// Width and Height describe decoded frames after FFmpeg's autorotation,
 	// so VMAF scaling and final validation use the same orientation as encoding.
 	Width   int
@@ -103,6 +104,7 @@ func probeInputMetadata(ctx context.Context, path string, forceVideo bool) (info
 }
 
 func validateInputFrames(ctx context.Context, info MediaInfo) (result MediaInfo, retErr error) {
+	info.framesValidated = false
 	started := time.Now()
 	var waited time.Duration
 	ctx = context.WithValue(ctx, inspectionWaitKey{}, &waited)
@@ -114,6 +116,9 @@ func validateInputFrames(ctx context.Context, info MediaInfo) (result MediaInfo,
 	if err := validateSourceVideo(info); err != nil {
 		return info, err
 	}
+	if err := info.facts.check(info.Path); err != nil {
+		return info, err
+	}
 	// Some containers expose HDR side data only after decoding. Inspect a
 	// bounded prefix before accepting inputs, including explicit-CRF runs.
 	var err error
@@ -121,7 +126,29 @@ func validateInputFrames(ctx context.Context, info MediaInfo) (result MediaInfo,
 	if err != nil {
 		return info, err
 	}
-	return info, validateSourceVideo(info)
+	if err := validateSourceVideo(info); err != nil {
+		return info, err
+	}
+	if err := info.facts.check(info.Path); err != nil {
+		return info, err
+	}
+	info.framesValidated = true
+	return info, nil
+}
+
+func ensureInputReady(ctx context.Context, opts ProbeOptions, info MediaInfo) (MediaInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return info, err
+	}
+	if err := info.facts.check(info.Path); err != nil {
+		return info, err
+	}
+	if info.framesValidated {
+		return info, validateSourceVideo(info)
+	}
+	stop := opts.progressDisplay().StartActivity("input HDR checks", info.Path, 0)
+	defer stop()
+	return validateInputFrames(ctx, info)
 }
 
 func validateSourceVideo(info MediaInfo) error {

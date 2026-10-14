@@ -18,6 +18,7 @@ func defaultProbeOptions() ProbeOptions {
 		FloorVMAF:         defaultFloorVMAF,
 		MaxEncodedPercent: defaultMaxEncodedPercent,
 		CheckWorkers:      4,
+		InputChecks:       "upfront",
 		SampleDuration:    20 * time.Second,
 		StallTimeout:      10 * time.Minute,
 	}

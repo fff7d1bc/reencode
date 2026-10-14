@@ -95,6 +95,11 @@ complete rendered text and run `git diff --check`.
   Forced reencodes and explicit probes must still validate actionable sources.
 - Reuse eligibility metadata instead of repeating ffprobe/HDR inspection.
   Preserve its source snapshot and reject changed sources before reuse.
+- Per-file input checks defer only decoded HDR-prefix inspection. Metadata
+  safety and path conflicts remain upfront. Require explicit validated state
+  before CRF overrides, cache lookup, fallback, or encoding. Do not prefetch
+  decoded checks or permit per-file scheduling with group CRF. Release large
+  per-window state after each file's last use in ordinary batches.
 - Frame inspection shares `max(1, GOMAXPROCS/4)` decoder threads across workers.
   Do not give each worker the entire budget or use automatic/all-core decoding.
   This limits inspection decoder threads, not final encoding or VMAF scoring.

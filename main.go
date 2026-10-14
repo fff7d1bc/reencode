@@ -97,6 +97,7 @@ func parseProbeCommandArgs(args []string, comparison *CompareOptions) (ProbeOpti
 	fs.BoolVar(&opts.ForceVideo, "force-video", false, "bypass content sniffing and require ffprobe video")
 	fs.Var((*stringListValue)(&opts.SkipNames), "skip-name", "skip files whose basename contains this text; can be repeated")
 	fs.IntVar(&opts.CheckWorkers, "check-workers", opts.CheckWorkers, "parallel eligibility check workers")
+	fs.StringVar(&opts.InputChecks, "input-checks", opts.InputChecks, "decoded input checks: upfront or per-file")
 	fs.IntVar(&opts.Samples, "samples", 0, "advanced: sample count override")
 	fs.StringVar(&opts.TempDir, "temp-dir", "", "advanced: temporary directory")
 	fs.BoolVar(&opts.KeepTemp, "keep-temp", false, "advanced: keep temporary sample files")
@@ -156,6 +157,7 @@ func parseEncodeArgs(args []string) (EncodeOptions, []string, error) {
 	fs.BoolVar(&opts.ProbeOptions.ForceVideo, "force-video", false, "bypass content sniffing and require ffprobe video")
 	fs.Var((*stringListValue)(&opts.ProbeOptions.SkipNames), "skip-name", "skip files whose basename contains this text; can be repeated")
 	fs.IntVar(&opts.ProbeOptions.CheckWorkers, "check-workers", probeOpts.CheckWorkers, "parallel eligibility check workers")
+	fs.StringVar(&opts.ProbeOptions.InputChecks, "input-checks", probeOpts.InputChecks, "decoded input checks: upfront or per-file")
 	fs.IntVar(&opts.ProbeOptions.Samples, "samples", 0, "advanced: sample count override")
 	fs.StringVar(&opts.ProbeOptions.TempDir, "temp-dir", "", "advanced: temporary directory")
 	fs.BoolVar(&opts.ProbeOptions.KeepTemp, "keep-temp", false, "advanced: keep temporary sample files")
@@ -297,6 +299,9 @@ func validateProbeOptions(opts ProbeOptions) error {
 	if opts.CheckWorkers < 1 {
 		return fmt.Errorf("--check-workers must be at least 1")
 	}
+	if opts.InputChecks != "upfront" && opts.InputChecks != "per-file" {
+		return fmt.Errorf("--input-checks must be upfront or per-file")
+	}
 	if opts.Samples < 0 {
 		return fmt.Errorf("--samples must not be negative")
 	}
@@ -310,6 +315,9 @@ func validateProbeOptions(opts ProbeOptions) error {
 }
 
 func validateEncodeOptions(opts EncodeOptions) error {
+	if opts.GroupCRF && opts.ProbeOptions.InputChecks == "per-file" {
+		return fmt.Errorf("--input-checks per-file cannot be combined with --group-crf")
+	}
 	for _, value := range []struct {
 		name string
 		set  bool

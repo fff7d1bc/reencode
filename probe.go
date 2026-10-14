@@ -29,6 +29,7 @@ type ProbeOptions struct {
 	ForceVideo        bool
 	SkipNames         []string
 	CheckWorkers      int
+	InputChecks       string
 	Samples           int
 	SampleDuration    time.Duration
 	TempDir           string
@@ -218,8 +219,14 @@ func ProbeFile(ctx context.Context, opts ProbeOptions, file string) (ProbeResult
 }
 
 func probeInspectedFile(ctx context.Context, opts ProbeOptions, info MediaInfo, source sourceSnapshot) (ProbeResult, error) {
+	defer info.facts.releaseWindows()
 	if err := verifySourceSnapshot(info.Path, source); err != nil {
-		return ProbeResult{}, err
+		return ProbeResult{File: info.Path, TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF}, err
+	}
+	var err error
+	info, err = ensureInputReady(ctx, opts, info)
+	if err != nil {
+		return ProbeResult{File: info.Path, Timing: info.preparation, TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF}, err
 	}
 	result, session, _, err := probeMediaFile(ctx, opts, info, false)
 	if session != nil {
@@ -245,6 +252,9 @@ func probeFile(ctx context.Context, opts ProbeOptions, file string, keepSession 
 }
 
 func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keepSession bool) (result ProbeResult, session *probeSession, cache *probeCacheHandle, retErr error) {
+	if !info.framesValidated {
+		return ProbeResult{File: info.Path}, nil, nil, fmt.Errorf("decoded input validation has not completed")
+	}
 	started := time.Now()
 	var runtimeSeconds, cacheSeconds float64
 	defer func() {

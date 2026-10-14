@@ -79,6 +79,9 @@ Options:
       Skip files whose basename contains this text. Can be repeated.
   --check-workers int
       Parallel eligibility check workers. Default: 4.
+  --input-checks upfront|per-file
+      Decode HDR checks upfront (default) or just before each file.
+      Per-file cannot be used with --group-crf.
   --samples int
       Advanced: sample count override.
   --sample-duration duration
@@ -153,6 +156,8 @@ Options:
       Skip files whose basename contains this text. Can be repeated.
   --check-workers int
       Parallel eligibility check workers. Default: 4.
+  --input-checks upfront|per-file
+      Decode HDR checks upfront (default) or just before each file.
   --samples int
       Advanced: sample count override.
   --sample-duration duration

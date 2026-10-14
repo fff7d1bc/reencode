@@ -25,7 +25,7 @@ func TestCompareOptionsAndIsolation(t *testing.T) {
 	}
 	original := compareProbe
 	defer func() { compareProbe = original }()
-	info := MediaInfo{Path: "movie", Duration: 5 * time.Minute, FPS: 24, VideoBytes: 10000, Width: 1920, Height: 1080}
+	info := MediaInfo{framesValidated: true, Path: "movie", Duration: 5 * time.Minute, FPS: 24, VideoBytes: 10000, Width: 1920, Height: 1080}
 	var calls []string
 	compareProbe = func(_ context.Context, o ProbeOptions, i MediaInfo, _ bool) (ProbeResult, *probeSession, *probeCacheHandle, error) {
 		if !reflect.DeepEqual(i, info) {

@@ -157,6 +157,16 @@ func (f *sourceFacts) check(path string) error {
 	return verifySourceSnapshot(path, f.source)
 }
 
+func (f *sourceFacts) releaseWindows() {
+	if f == nil {
+		return
+	}
+	// Batch eligibility retains MediaInfo until command exit. Drop heavy window
+	// state after this file's final use instead of accumulating it for the batch.
+	clear(f.timelines)
+	clear(f.measurements)
+}
+
 func (s *crfSearch) initTimelines() {
 	if s.timelines != nil {
 		return

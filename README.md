@@ -125,6 +125,19 @@ then counts only actionable files, not every path matched by the shell. This
 check runs up to four files in parallel by default. Use `--check-workers N` to
 adjust it.
 
+For very large batches, `--input-checks per-file` defers decoded HDR-prefix
+checks until each file is about to run. Name filters, metadata inspection,
+metadata-visible HDR/alpha rejection, and output/path-conflict checks still
+finish upfront. There is no decoded-check prefetch. This reduces startup decode
+work, not the metadata I/O needed to classify the batch.
+
+The default `--input-checks upfront` finds decoded HDR problems before starting
+any files. In per-file mode, a later HDR failure keeps that source, reports the
+error in input order, continues with subsequent files, and gives a nonzero exit
+status. Earlier successful encodes are not rolled back. Explicit/fallback CRF
+and cache hits still require validation. Per-file checks are available to
+`encode`, `probe`, and `compare`, but not with `--group-crf`.
+
 Frame inspection has a shared decoder-thread budget of one quarter of the
 available logical CPUs, rounded down with a minimum of one. CPU availability
 follows Go's `GOMAXPROCS`, including configured limits. Concurrent eligibility
@@ -350,6 +363,8 @@ probing.
 - `--skip-name TEXT`: skip files whose basename contains this text. Repeat the
   option for multiple markers.
 - `--check-workers N`: set parallel eligibility check workers. Default: `4`.
+- `--input-checks upfront|per-file`: when to run decoded HDR-prefix checks.
+  Default: `upfront`. Metadata and path checks always run upfront.
 - `--temp-dir PATH`: write probe sample files under this directory.
 - `--keep-temp`: keep encoded probe samples.
 - `--stall-timeout DURATION`: kill ffmpeg if frame progress stalls. Zero
