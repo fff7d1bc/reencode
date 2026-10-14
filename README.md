@@ -291,7 +291,10 @@ and total sample-encoding and scoring time across each search. JSONL writes
 one object per input in input order, with individual results for every
 profile/tune combination. Failures are reported without hiding other rows.
 
-Cache hits are labelled and their timings are cleared. Use `--no-cache` to
+Cache hits are labelled and historical timings are cleared. Current-run cache
+lookup and runtime-check costs remain visible. Shared metadata and HDR
+preparation are reported once, separately from the individual searches.
+Use `--no-cache` to
 measure fresh searches. These are search costs, not predicted final-encode
 times, and different searches may evaluate different numbers of CRFs. VMAF
 scores from different model families are not interchangeable. Compare never
@@ -392,6 +395,11 @@ elapsed-time status during source and encoded-sample timestamp inspection, and
 progress during runtime checks, sample encode, VMAF scoring, and final encode.
 Inspection elapsed time is not a percentage or a stall-detection heartbeat.
 These displays are disabled by `--no-progress` and in JSON mode.
+Fresh searches announce their sample count, sampled duration, and inspection
+thread budget. JSON includes current-run preparation, timestamp inspection,
+runtime checks, cache, encode, score, and active-total timings. `--verbose`
+prints these timings and separate whole-command wall time. Active time excludes
+waiting behind other files and decoded-inspection slots, not subprocess work.
 During probing, completed CRF attempts are
 printed above the live progress line with average VMAF, minimum sample VMAF,
 encoded-size percentage, and predicted output size. The selected CRF is printed

@@ -36,6 +36,7 @@ type EncodeOptions struct {
 }
 
 func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) int {
+	defer commandTimer(opts.ProbeOptions)()
 	if ctx.Err() != nil {
 		return 130
 	}

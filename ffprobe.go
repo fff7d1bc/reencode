@@ -20,6 +20,7 @@ var errNotVideoFile = errors.New("not a video file")
 var errNoVideoStream = errors.New("no video stream found")
 
 type MediaInfo struct {
+	preparation    ProbeTiming
 	Path           string
 	Duration       time.Duration
 	StartTime      time.Duration
@@ -72,7 +73,12 @@ func probeInputMediaContextWithPolicy(ctx context.Context, path string, forceVid
 	return validateInputFrames(ctx, info)
 }
 
-func probeInputMetadata(ctx context.Context, path string, forceVideo bool) (MediaInfo, error) {
+func probeInputMetadata(ctx context.Context, path string, forceVideo bool) (info MediaInfo, err error) {
+	started := time.Now()
+	defer func() {
+		info.preparation.MetadataSeconds = time.Since(started).Seconds()
+		info.preparation.TotalSeconds = info.preparation.MetadataSeconds
+	}()
 	ok, err := candidateVideo(path, forceVideo)
 	if err != nil {
 		return MediaInfo{}, err
@@ -86,7 +92,15 @@ func probeInputMetadata(ctx context.Context, path string, forceVideo bool) (Medi
 	return probeMediaContext(ctx, path)
 }
 
-func validateInputFrames(ctx context.Context, info MediaInfo) (MediaInfo, error) {
+func validateInputFrames(ctx context.Context, info MediaInfo) (result MediaInfo, retErr error) {
+	started := time.Now()
+	var waited time.Duration
+	ctx = context.WithValue(ctx, inspectionWaitKey{}, &waited)
+	defer func() {
+		elapsed := (time.Since(started) - waited).Seconds()
+		result.preparation.HDRSeconds += elapsed
+		result.preparation.TotalSeconds += elapsed
+	}()
 	if err := validateSourceVideo(info); err != nil {
 		return info, err
 	}

@@ -9,6 +9,7 @@ import (
 )
 
 type inspectionBudgetKey struct{}
+type inspectionWaitKey struct{}
 
 type inspectionBudget struct {
 	slots   chan struct{}
@@ -31,11 +32,18 @@ func frameProbeOutput(ctx context.Context, timeout time.Duration, args ...string
 	if budget == nil {
 		budget = newInspectionBudget(runtime.GOMAXPROCS(0), 1)
 	}
+	waitStarted := time.Now()
 	select {
 	case budget.slots <- struct{}{}:
 		defer func() { <-budget.slots }()
 	case <-ctx.Done():
+		if waited, ok := ctx.Value(inspectionWaitKey{}).(*time.Duration); ok {
+			*waited += time.Since(waitStarted)
+		}
 		return nil, ctx.Err()
+	}
+	if waited, ok := ctx.Value(inspectionWaitKey{}).(*time.Duration); ok {
+		*waited += time.Since(waitStarted)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

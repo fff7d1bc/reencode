@@ -10,11 +10,6 @@ import (
 	"text/tabwriter"
 )
 
-type ProbeTiming struct {
-	EncodeSeconds float64 `json:"encode_seconds"`
-	ScoreSeconds  float64 `json:"score_seconds"`
-}
-
 type CompareOptions struct {
 	ProbeOptions    ProbeOptions
 	Profiles        []string
@@ -23,11 +18,12 @@ type CompareOptions struct {
 }
 
 type CompareResult struct {
-	File       string        `json:"file"`
-	SamplePlan SamplePlan    `json:"sample_plan"`
-	Results    []ProbeResult `json:"results"`
-	Skipped    string        `json:"skipped,omitempty"`
-	Error      string        `json:"error,omitempty"`
+	Preparation ProbeTiming   `json:"preparation_timing"`
+	File        string        `json:"file"`
+	SamplePlan  SamplePlan    `json:"sample_plan"`
+	Results     []ProbeResult `json:"results"`
+	Skipped     string        `json:"skipped,omitempty"`
+	Error       string        `json:"error,omitempty"`
 }
 
 func parseCompareArgs(args []string) (CompareOptions, []string, error) {
@@ -69,6 +65,8 @@ var compareProbe = probeMediaFile
 
 func compareInput(ctx context.Context, opts CompareOptions, info MediaInfo) CompareResult {
 	result := CompareResult{File: info.Path, SamplePlan: planSamples(info, opts.ProbeOptions.Samples, opts.ProbeOptions.SampleDuration)}
+	result.Preparation = info.preparation
+	info.preparation = ProbeTiming{}
 	for _, profile := range opts.Profiles {
 		for _, tune := range opts.Tunes {
 			if ctx.Err() != nil {
@@ -93,6 +91,7 @@ func compareInput(ctx context.Context, opts CompareOptions, info MediaInfo) Comp
 }
 
 func runCompareCommand(ctx context.Context, opts CompareOptions, files []string) int {
+	defer commandTimer(opts.ProbeOptions)()
 	if ctx.Err() != nil {
 		return 130
 	}
@@ -172,7 +171,13 @@ func printCompareHuman(w io.Writer, result CompareResult) {
 		fmt.Fprintf(table, "%s\t%s\t%s\t%.2f\t%.2f / %.2f\t%s (%.0f%%)\t%s\t%s\n", row.Model.Profile, row.Tune, terseFloat(row.CRF), row.EffectiveTarget, row.Score, row.WorstSampleScore, humanBytes(row.PredictedSize), row.EncodedPercent, timing, measurement)
 	}
 	_ = table.Flush()
+	fmt.Fprintln(w, "  shared preparation: "+result.Preparation.summary())
 	for _, row := range result.Results {
+		timing := row.Timing
+		if row.CacheHit {
+			timing.EncodeSeconds, timing.ScoreSeconds, timing.InspectionSeconds = 0, 0, 0
+		}
+		fmt.Fprintf(w, "  %s/%s timing: %s\n", row.Model.Profile, row.Tune, timing.summary())
 		if row.Success {
 			for _, sample := range row.Samples {
 				fmt.Fprintf(w, "  %s/%s sample %.3fs: p05 %.2f, worst %.3fs %.2f at %.3fs\n", row.Model.Profile, row.Tune, sample.StartSeconds, sample.FrameP05, sample.WorstSecondDuration, sample.WorstSecondScore, sample.WorstSecondStart)

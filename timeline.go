@@ -132,6 +132,8 @@ type sampleWindowKey struct {
 }
 
 func (s *crfSearch) inspectTimeline(ctx context.Context, path string, origin, start, duration time.Duration, full bool, role string) (frameTimeline, error) {
+	started := time.Now()
+	defer func() { s.timing.InspectionSeconds += time.Since(started).Seconds() }()
 	stop := s.options.progressDisplay().StartActivity(role, s.info.Path, 0)
 	defer stop()
 	return inspectTimeline(ctx, path, origin, start, duration, full)

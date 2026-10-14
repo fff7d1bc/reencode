@@ -94,8 +94,8 @@ func TestMediaIntegrationCompareReadOnlyAndCache(t *testing.T) {
 			if pass == 0 && (row.Timing.EncodeSeconds <= 0 || row.Timing.ScoreSeconds <= 0) {
 				t.Fatal("missing fresh timing")
 			}
-			if pass == 1 && row.Timing != (ProbeTiming{}) {
-				t.Fatal("cached timing")
+			if pass == 1 && (row.Timing.EncodeSeconds != 0 || row.Timing.ScoreSeconds != 0 || row.Timing.InspectionSeconds != 0 || row.Timing.TotalSeconds <= 0 || row.Timing.CacheSeconds <= 0) {
+				t.Fatal("incorrect current-invocation cached timing", row.Timing)
 			}
 		}
 	}

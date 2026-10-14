@@ -95,6 +95,7 @@ type ProbeResult struct {
 }
 
 func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int {
+	defer commandTimer(opts)()
 	if ctx.Err() != nil {
 		return 130
 	}
@@ -241,14 +242,29 @@ func probeFile(ctx context.Context, opts ProbeOptions, file string, keepSession 
 	return probeMediaFile(ctx, opts, info, keepSession)
 }
 
-func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keepSession bool) (ProbeResult, *probeSession, *probeCacheHandle, error) {
+func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keepSession bool) (result ProbeResult, session *probeSession, cache *probeCacheHandle, retErr error) {
+	started := time.Now()
+	var runtimeSeconds, cacheSeconds float64
+	defer func() {
+		result.Timing.MetadataSeconds += info.preparation.MetadataSeconds
+		result.Timing.HDRSeconds += info.preparation.HDRSeconds
+		result.Timing.RuntimeSeconds += runtimeSeconds
+		result.Timing.CacheSeconds += cacheSeconds
+		result.Timing.TotalSeconds = time.Since(started).Seconds() + info.preparation.TotalSeconds
+		if opts.Verbose && !opts.JSON {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", displayPath(info.Path), result.Timing.summary())
+		}
+	}()
 	file := info.Path
 	var err error
+	runtimeStart := time.Now()
 	opts.runtime, err = checkScoringRuntime(ctx, opts, resolveVMAFModel(opts, info))
+	runtimeSeconds = time.Since(runtimeStart).Seconds()
 	if err != nil {
 		return ProbeResult{File: file, Tune: opts.Tune, Model: resolveVMAFModel(opts, info), TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF}, nil, nil, err
 	}
-	cache, err := prepareProbeCache(ctx, opts, file, info)
+	cacheStart := time.Now()
+	cache, err = prepareProbeCache(ctx, opts, file, info)
 	if err != nil {
 		warnCache(opts, "probe cache disabled: %v", err)
 	} else if cache != nil && !opts.RefreshCache {
@@ -256,6 +272,7 @@ func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keep
 		if err != nil {
 			warnCache(opts, "probe cache read failed: %v", err)
 		} else if ok {
+			cacheSeconds = time.Since(cacheStart).Seconds()
 			warnCache(opts, "probe cache hit: %s", displayPath(file))
 			if !keepSession {
 				return result, nil, cache, nil
@@ -268,8 +285,10 @@ func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keep
 			return result, session, cache, nil
 		}
 	}
+	cacheSeconds = time.Since(cacheStart).Seconds()
+	printProbePlan(opts, info)
 
-	session, err := newProbeSession(opts, info)
+	session, err = newProbeSession(opts, info)
 	if err != nil {
 		var result ProbeResult
 		result.File = file
@@ -278,14 +297,16 @@ func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keep
 		return result, nil, cache, err
 	}
 
-	result, err := session.Run(ctx)
+	result, err = session.Run(ctx)
 	if err != nil {
 		return result, session, cache, err
 	}
 	if cache != nil && result.Success {
+		cacheStart = time.Now()
 		if err := storeProbeCache(cache, result); err != nil {
 			warnCache(opts, "probe cache write failed: %v", err)
 		}
+		cacheSeconds += time.Since(cacheStart).Seconds()
 	}
 	if !keepSession {
 		session.Close()

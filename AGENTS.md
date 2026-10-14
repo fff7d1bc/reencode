@@ -155,6 +155,9 @@ Add focused tests when changing:
   elapsed-time activity from measured progress and stall detection. Stop and
   join display tickers before the next phase, including on error or Ctrl-C.
   Keep JSON and `--no-progress` runs free of interactive output.
+- Timing reports describe the current invocation, never historical cached work.
+  Count shared preparation once in comparisons and exclude eligibility queue
+  waits from per-file active time. Command wall time includes all batch waiting.
 
 Before finishing non-trivial changes, run:
 
