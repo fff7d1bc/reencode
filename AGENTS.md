@@ -149,6 +149,10 @@ Add focused tests when changing:
   Optimize redundant decoding without substituting nominal FPS or packet
   counts for decoded-frame correctness. Collecting timestamps during existing
   decoding is preferable when equivalence has been established and tested.
+- Decoded timestamp capture uses wrapped AVFrame references and framecrc, not
+  raw-video serialization. Observe both streams before timestamp normalization.
+  Test unequal stream lengths so shortest-frame synchronization cannot hide
+  extra frames. Sidecars are scratch state even with `--keep-temp`.
 - Cover skip-before-decode ordering, metadata reuse, shared thread limits,
   cancellation while waiting for a decoder slot, and threaded timestamp parity.
 - Long inspection and batch-check phases need visible status. Distinguish

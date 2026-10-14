@@ -56,14 +56,35 @@ func parseTimeline(data []byte, origin, start, duration time.Duration, full bool
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return frameTimeline{}, fmt.Errorf("parse frame timestamps: %w", err)
 	}
-	var result frameTimeline
-	var lastDuration time.Duration
+	frames := make([]decodedFrame, 0, len(raw.Frames))
 	for _, f := range raw.Frames {
 		pts, err := timestampDuration(f.PTS)
 		if err != nil {
-			return result, err
+			return frameTimeline{}, err
 		}
-		pts -= origin
+		value := f.Duration
+		if value == "" || value == "N/A" {
+			value = f.PacketDuration
+		}
+		var duration time.Duration
+		if value != "" && value != "N/A" {
+			duration, err = timestampDuration(value)
+			if err != nil {
+				return frameTimeline{}, err
+			}
+		}
+		frames = append(frames, decodedFrame{pts - origin, duration})
+	}
+	return timelineFromFrames(frames, start, duration, full)
+}
+
+type decodedFrame struct{ PTS, Duration time.Duration }
+
+func timelineFromFrames(frames []decodedFrame, start, duration time.Duration, full bool) (frameTimeline, error) {
+	var result frameTimeline
+	var lastDuration time.Duration
+	for _, f := range frames {
+		pts := f.PTS
 		if !full && pts < start {
 			continue
 		}
@@ -81,17 +102,7 @@ func parseTimeline(data []byte, origin, start, duration time.Duration, full bool
 			return result, fmt.Errorf("non-increasing video timestamps")
 		}
 		result.Times = append(result.Times, relative)
-		value := f.Duration
-		if value == "" || value == "N/A" {
-			value = f.PacketDuration
-		}
-		lastDuration = 0
-		if value != "" && value != "N/A" {
-			lastDuration, err = timestampDuration(value)
-			if err != nil {
-				return result, err
-			}
-		}
+		lastDuration = f.Duration
 	}
 	if len(result.Times) == 0 {
 		return result, fmt.Errorf("sample window has no decoded frames")
