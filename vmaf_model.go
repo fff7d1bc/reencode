@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -151,7 +150,9 @@ func detectScoringRuntime(ctx context.Context, opts ProbeOptions, model VMAFMode
 	}
 	defer os.Remove(logPath)
 	// Exercise the actual dynamically loaded libraries and all selected model
-	// features. Version/help text alone cannot establish that the model works.
+	// features. Upstream v3.2.1 can report "3.2.0" or a git hash, so gate on
+	// model support rather than version text. Preserve the reported version for
+	// diagnostics and cache identity without inferring a package release.
 	smoke := model
 	smoke.Scale, smoke.EncodingWidth, smoke.EncodingHeight = "", 640, 360
 	filter := strings.ReplaceAll(strings.ReplaceAll(smoke.filter(path), "[0:v]", "[dis0]"), "[1:v]", "[ref0]")
@@ -163,9 +164,6 @@ func detectScoringRuntime(ctx context.Context, opts ProbeOptions, model VMAFMode
 	if err != nil {
 		return RuntimeVersions{}, fmt.Errorf("VMAF model %s runtime check failed (upgrade ffmpeg/libvmaf or select --vmaf-profile legacy): %w", model.ID, err)
 	}
-	if model.Profile == "v1" && !versionAtLeast(report.Version, 3, 2, 1) {
-		return RuntimeVersions{}, fmt.Errorf("VMAF v1 requires libvmaf 3.2.1 or newer, loaded %q; upgrade ffmpeg's libvmaf or use --vmaf-profile legacy", report.Version)
-	}
 	if report.SVTVersion == "" {
 		return RuntimeVersions{}, fmt.Errorf("cannot determine actual SVT-AV1 runtime version")
 	}
@@ -174,27 +172,4 @@ func detectScoringRuntime(ctx context.Context, opts ProbeOptions, model VMAFMode
 	return versions, nil
 }
 
-var runtimeVersionPattern = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)(?:$|[-+])`)
 var svtVersionPattern = regexp.MustCompile(`SVT-AV1 Encoder Lib (v[^\s]+)`)
-
-func versionAtLeast(version string, major, minor, patch int) bool {
-	// Upstream v3.2.1's git-describe pattern excludes its own v-prefixed
-	// release tag, so a clean checkout reports the pinned commit instead.
-	if (version == "f85a853" || version == "f85a853692a8c730d0270cd733c8bb30b5b93b7c") && major == 3 && minor == 2 && patch == 1 {
-		return true
-	}
-	match := runtimeVersionPattern.FindStringSubmatch(version)
-	if len(match) != 4 {
-		return false
-	}
-	for i, want := range []int{major, minor, patch} {
-		got, err := strconv.Atoi(match[i+1])
-		if err != nil {
-			return false
-		}
-		if got != want {
-			return got > want
-		}
-	}
-	return true
-}

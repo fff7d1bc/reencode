@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -48,11 +49,79 @@ func TestVMAFProfileSelection(t *testing.T) {
 	}
 }
 
-func TestVMAFRuntimeVersions(t *testing.T) {
-	for version, want := range map[string]bool{"3.2.0": false, "3.2.1": true, "v3.2.1-0-gabc": true, "3.3.0": true, "4.0.0": true, "garbage": false, "f85a853": true} {
-		if got := versionAtLeast(version, 3, 2, 1); got != want {
-			t.Fatalf("%s: %v", version, got)
-		}
+func TestVMAFRuntimeUsesCapabilities(t *testing.T) {
+	const banner = "SVT-AV1 Encoder Lib v4.2.0\nSvt[info]: SVT [config]: preset / tune / pred struct : 11 / PSNR / random access"
+	valid := reportJSON(100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100)
+	logNamePattern := regexp.MustCompile(`\.reencode-runtime-[0-9]+\.json`)
+	for _, tt := range []struct {
+		name, version, report, stderr string
+		frames                        int64
+		runErr                        error
+		wantError                     string
+	}{
+		{name: "homebrew release", version: "3.2.0", report: valid, frames: 12, stderr: banner},
+		{name: "release version", version: "3.2.1", report: valid, frames: 12, stderr: banner},
+		{name: "git build", version: "f85a853", report: valid, frames: 12, stderr: banner},
+		{name: "custom build", version: "vendor-build", report: valid, frames: 12, stderr: banner},
+		{name: "unsupported features", runErr: fmt.Errorf("unsupported model feature"), wantError: "unsupported model feature"},
+		{name: "missing report", frames: 12, stderr: banner, wantError: "read VMAF report"},
+		{name: "malformed report", report: "{", frames: 12, stderr: banner, wantError: "invalid VMAF report"},
+		{name: "incomplete scores", version: "3.2.0", report: reportJSON(100), frames: 12, stderr: banner, wantError: "incomplete VMAF report"},
+		{name: "incomplete progress", version: "3.2.0", report: valid, frames: 11, stderr: banner, wantError: "frame coverage mismatch"},
+		{name: "missing version", report: valid, frames: 12, stderr: banner, wantError: "incomplete VMAF report"},
+		{name: "missing encoder version", version: "3.2.0", report: valid, frames: 12, wantError: "cannot determine actual SVT-AV1 runtime version"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			oldVMAF, oldTune := executeVMAF, executeTuneCheck
+			oldScoringCache, oldTuneCache := scoringRuntimeCache.versions, encoderTuneCache.versions
+			t.Cleanup(func() {
+				executeVMAF, executeTuneCheck = oldVMAF, oldTune
+				scoringRuntimeCache.versions, encoderTuneCache.versions = oldScoringCache, oldTuneCache
+			})
+			scoringRuntimeCache.versions = map[string]RuntimeVersions{}
+			encoderTuneCache.versions = map[string]string{}
+			executeTuneCheck = func(context.Context, FFMpegRun) (FFMpegResult, error) {
+				return FFMpegResult{LastFrame: 12, Stderr: banner}, nil
+			}
+			opts := defaultProbeOptions()
+			opts.TempDir, opts.KeepTemp = t.TempDir(), true
+			model := resolveVMAFModel(opts, MediaInfo{Width: 1920, Height: 1080, FPS: 30})
+			calls := 0
+			executeVMAF = func(_ context.Context, run FFMpegRun) (FFMpegResult, error) {
+				calls++
+				if !strings.Contains(strings.Join(run.Args, " "), "cambi.enc_bitdepth=10") {
+					t.Fatal("model feature check was bypassed")
+				}
+				if tt.report != "" {
+					name := logNamePattern.FindString(strings.Join(run.Args, " "))
+					if name == "" {
+						t.Fatal("runtime check did not request a JSON report")
+					}
+					data := strings.Replace(tt.report, `"version":"3.2.1"`, fmt.Sprintf(`"version":%q`, tt.version), 1)
+					if err := os.WriteFile(filepath.Join(opts.TempDir, name), []byte(data), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return FFMpegResult{LastFrame: tt.frames, Stderr: tt.stderr}, tt.runErr
+			}
+			for attempt := 0; attempt < 2; attempt++ {
+				versions, err := detectScoringRuntime(context.Background(), opts, model)
+				if tt.wantError != "" {
+					if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+						t.Fatalf("got %v, want error containing %q", err, tt.wantError)
+					}
+					if versions != (RuntimeVersions{}) || len(scoringRuntimeCache.versions) != 0 || calls != attempt+1 {
+						t.Fatal("failed capability check was cached or bypassed")
+					}
+				} else if err != nil || versions.LibVMAF != tt.version || versions.SVTAV1 != "v4.2.0" || calls != 1 {
+					t.Fatalf("versions=%+v, err=%v, calls=%d", versions, err, calls)
+				}
+				entries, err := os.ReadDir(opts.TempDir)
+				if err != nil || len(entries) != 0 {
+					t.Fatalf("runtime scratch leak despite --keep-temp: %v, %v", entries, err)
+				}
+			}
+		})
 	}
 }
 

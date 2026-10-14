@@ -192,11 +192,20 @@ results vary across machines and package upgrades. The selected model is part
 of the probe cache identity.
 
 Use `--vmaf-profile legacy` to retain the previous v0.6.1 model and scaling
-policy. V1 requires libvmaf 3.2.1 or newer and at least one encoded dimension
-of 216 pixels. A synthetic startup check loads the selected model and exercises
-its features. Unsupported runtimes fail explicitly, without silently switching
-models. JSON records the model ID, SHA-512, scoring policy, and actual libvmaf
-and SVT-AV1 runtime versions. Successful probe metadata identifies the model.
+policy. V1 requires at least one encoded dimension of 216 pixels. A synthetic
+startup check loads the selected model, exercises its features, and validates
+complete scores. Compatibility is determined by this check, not a numeric
+version gate. Unsupported runtimes fail explicitly, without silently switching
+models.
+
+Libvmaf 3.2.1 or newer is recommended for its
+[thread-queue backpressure fix](https://github.com/Netflix/vmaf/releases/tag/v3.2.1),
+which avoids excessive memory growth during threaded scoring. The short startup
+check cannot detect that issue. Some 3.2.1 builds report `3.2.0` or a commit hash
+because of [upstream version metadata](https://github.com/Netflix/vmaf/blob/v3.2.1/libvmaf/meson.build).
+JSON and cache identity retain the reported libvmaf and SVT-AV1 version strings
+unchanged. JSON also records the model ID, SHA-512, and scoring policy.
+Successful probe metadata identifies the model.
 Old cache entries remain on disk but are not reused by the new schema.
 Bundled model provenance and licensing are in `models/`. A standalone binary
 also exposes the upstream license through `reencode help licenses`.
@@ -404,7 +413,8 @@ Safety behavior:
 The ffmpeg build must support:
 
 - `libsvtav1`
-- `libvmaf` 3.2.1 or newer for the default v1 profile
+- `libvmaf` with support for the selected model's features, with 3.2.1 or newer
+  recommended for the default v1 profile
 
 `reencode` checks these capabilities before probing or encoding and fails early
 if a required encoder or filter is missing.
