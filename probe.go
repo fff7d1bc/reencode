@@ -38,6 +38,13 @@ type ProbeOptions struct {
 	Progress          *ProgressDisplay
 }
 
+func (opts ProbeOptions) progressDisplay() *ProgressDisplay {
+	if opts.JSON || opts.NoProgress {
+		return nil
+	}
+	return opts.Progress
+}
+
 type ProbeAttempt struct {
 	Samples          []SampleDiagnostics `json:"samples,omitempty"`
 	CRF              float64             `json:"crf"`
@@ -1113,9 +1120,9 @@ func (s *crfSearch) scoreWindow(ctx context.Context, sample SampleFile, distorte
 	var distortedTimeline frameTimeline
 	var err error
 	if final == nil {
-		distortedTimeline, err = inspectTimeline(ctx, distorted, 0, 0, 0, true)
+		distortedTimeline, err = s.inspectTimeline(ctx, distorted, 0, 0, 0, true, "sample timestamps")
 	} else {
-		distortedTimeline, err = inspectTimeline(ctx, distorted, final.Origin, final.Start, final.Duration, sample.FullPass)
+		distortedTimeline, err = s.inspectTimeline(ctx, distorted, final.Origin, final.Start, final.Duration, sample.FullPass, "final timestamps")
 	}
 	if err != nil {
 		return SampleDiagnostics{}, err

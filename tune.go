@@ -28,7 +28,8 @@ func checkEncoderTune(ctx context.Context, opts ProbeOptions) (string, error) {
 	args := []string{"-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=0.4"}
 	args = append(args, video.ffmpegArgs("-c:v")...)
 	args = append(args, "-f", "null", nullOutputPath())
-	res, err := executeTuneCheck(ctx, FFMpegRun{Role: "encoder tune check", Args: args, StallTimeout: 15 * time.Second})
+	res, err := executeTuneCheck(ctx, FFMpegRun{Role: "encoder tune check", Args: args, StallTimeout: 15 * time.Second,
+		Progress: opts.progressDisplay(), ExpectedFrames: 12, ExpectedDuration: 400 * time.Millisecond})
 	if err != nil {
 		return "", fmt.Errorf("SVT-AV1 --tune %s check failed: %w", video.Tune, err)
 	}

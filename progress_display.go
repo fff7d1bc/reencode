@@ -12,6 +12,9 @@ import (
 )
 
 type ProgressState struct {
+	Activity       bool
+	Elapsed        time.Duration
+	Skipped        int
 	Role           string
 	File           string
 	CRF            float64
@@ -40,6 +43,52 @@ func NewProgressDisplay(disabled bool) *ProgressDisplay {
 		return nil
 	}
 	return &ProgressDisplay{out: os.Stderr, live: true}
+}
+
+// StartActivity owns an elapsed-time display for work without ffmpeg progress.
+// Its returned stop function must run before starting another display phase.
+// Joining the ticker prevents late redraws after errors, cancellation, or the
+// next sample encode. Elapsed time is activity, not measured media progress.
+func (p *ProgressDisplay) StartActivity(role, file string, total int) func() {
+	if p == nil {
+		return func() {}
+	}
+	started := time.Now()
+	p.Start(ProgressState{Activity: true, Role: role, File: file, ScopeTotal: total})
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				p.mu.Lock()
+				p.state.Elapsed = time.Since(started)
+				p.flushLocked(false)
+				p.mu.Unlock()
+			}
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() { close(stop); <-done; p.Finish() })
+	}
+}
+
+func (p *ProgressDisplay) Checked(skipped bool) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.state.ScopeDone++
+	if skipped {
+		p.state.Skipped++
+	}
+	p.flushLocked(p.state.ScopeDone == p.state.ScopeTotal)
 }
 
 func (p *ProgressDisplay) Start(state ProgressState) {
@@ -123,6 +172,14 @@ func (p *ProgressDisplay) clearLocked() {
 }
 
 func formatProgressLine(state ProgressState, width int) string {
+	if state.Activity {
+		fixed := "    " + state.Role + " "
+		if state.ScopeTotal > 0 {
+			fixed += fmt.Sprintf("%d/%d (%d skipped) ", state.ScopeDone, state.ScopeTotal, state.Skipped)
+		}
+		fixed += "elapsed " + formatDurationShort(state.Elapsed) + " "
+		return fixed + truncateMiddle(displayPath(state.File), width-visibleLen(fixed))
+	}
 	label := state.Role
 	if state.CRF > 0 {
 		label += " crf " + terseFloat(state.CRF)

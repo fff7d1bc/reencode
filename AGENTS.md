@@ -151,6 +151,10 @@ Add focused tests when changing:
   decoding is preferable when equivalence has been established and tested.
 - Cover skip-before-decode ordering, metadata reuse, shared thread limits,
   cancellation while waiting for a decoder slot, and threaded timestamp parity.
+- Long inspection and batch-check phases need visible status. Distinguish
+  elapsed-time activity from measured progress and stall detection. Stop and
+  join display tickers before the next phase, including on error or Ctrl-C.
+  Keep JSON and `--no-progress` runs free of interactive output.
 
 Before finishing non-trivial changes, run:
 

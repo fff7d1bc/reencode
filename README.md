@@ -387,8 +387,12 @@ remain untouched.
 
 ## Progress, Cache, And Safety
 
-Interactive terminals show compact stderr progress during sample encode, sample
-VMAF scoring, and final encode. During probing, completed CRF attempts are
+Interactive terminals show checked/skipped counts during input classification,
+elapsed-time status during source and encoded-sample timestamp inspection, and
+progress during runtime checks, sample encode, VMAF scoring, and final encode.
+Inspection elapsed time is not a percentage or a stall-detection heartbeat.
+These displays are disabled by `--no-progress` and in JSON mode.
+During probing, completed CRF attempts are
 printed above the live progress line with average VMAF, minimum sample VMAF,
 encoded-size percentage, and predicted output size. The selected CRF is printed
 before the per-file summary.

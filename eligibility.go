@@ -69,6 +69,9 @@ func collectEligibleInputs(ctx context.Context, mode eligibilityMode, files []st
 }
 
 func collectEligibleInputsWithClassifier(ctx context.Context, mode eligibilityMode, files []string, opts EncodeOptions, classifier eligibilityClassifier) eligibilityResult {
+	progress := opts.ProbeOptions.progressDisplay()
+	stop := progress.StartActivity("checking inputs", "", len(files))
+	defer stop()
 	entries := make([]eligibilityEntry, len(files))
 	workers := eligibilityWorkerCount(len(files), opts.ProbeOptions.CheckWorkers)
 	if workers <= 1 {
@@ -78,6 +81,7 @@ func collectEligibleInputsWithClassifier(ctx context.Context, mode eligibilityMo
 				continue
 			}
 			entries[i] = classifier(ctx, mode, file, opts)
+			progress.Checked(entries[i].Skipped)
 		}
 		return eligibilityResultFromEntries(entries)
 	}
@@ -99,6 +103,7 @@ func collectEligibleInputsWithClassifier(ctx context.Context, mode eligibilityMo
 				// probe JSON stay deterministic even though ffprobe runs in
 				// parallel.
 				entries[idx] = classifier(ctx, mode, file, opts)
+				progress.Checked(entries[idx].Skipped)
 			}
 		}()
 	}

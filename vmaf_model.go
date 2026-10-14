@@ -160,7 +160,8 @@ func detectScoringRuntime(ctx context.Context, opts ProbeOptions, model VMAFMode
 	args := []string{"-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=0.4", "-filter_complex", filter,
 		"-map", "[enc]", "-c:v", "libsvtav1", "-preset", "11", "-crf", "32", "-f", "null", nullOutputPath(),
 		"-map", "[quality]", "-f", "null", nullOutputPath()}
-	report, err := runVMAFReport(ctx, FFMpegRun{Role: "VMAF runtime check", Args: args, StallTimeout: 15 * time.Second}, logPath, 12)
+	report, err := runVMAFReport(ctx, FFMpegRun{Role: "VMAF runtime check", Args: args, StallTimeout: 15 * time.Second,
+		Progress: opts.progressDisplay(), ExpectedFrames: 12, ExpectedDuration: 400 * time.Millisecond}, logPath, 12)
 	if err != nil {
 		return RuntimeVersions{}, fmt.Errorf("VMAF model %s runtime check failed (upgrade ffmpeg/libvmaf or select --vmaf-profile legacy): %w", model.ID, err)
 	}
