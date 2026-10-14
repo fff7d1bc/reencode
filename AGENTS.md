@@ -113,6 +113,9 @@ complete rendered text and run `git diff --check`.
   outlier.
 - CRF search uses quarter-step quantization. Prefer `qFromCRF` and `crfFromQ`
   over direct floating-point comparisons.
+- Window priority may use the nearest measured CRF, with lower-CRF and original
+  index tie breaks. Keep aggregation and outlier indices in canonical order.
+  Partial attempts prove floor failure only, never a mean/size-based search stop.
 
 ## Operational Constraints
 

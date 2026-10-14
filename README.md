@@ -191,6 +191,11 @@ conservative while avoiding obvious wasted probes when the quality boundary is
 already clear. If a CRF has already become impossible because sample scores are
 too far below the VMAF floor, `reencode` stops that CRF early and moves on
 instead of scoring the remaining sample windows.
+The first attempt uses chronological windows. Later attempts try the
+lowest-scoring windows from nearby measured CRFs first, with deterministic
+ties. Passing still requires every planned window. Partial means and size
+estimates never justify stopping the search for all lower CRFs, and reports
+keep the original sample order.
 
 The VMAF scoring path is intentionally conservative:
 

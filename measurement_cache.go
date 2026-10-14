@@ -148,6 +148,7 @@ func (s *crfSearch) measureWindow(ctx context.Context, video VideoArgs, sample S
 		s.timelines[m.Window] = m.Timeline
 		s.measurements[key] = m
 		s.reusedMeasurements++
+		s.rememberWindowScore(sample, m.Q, m.Diagnostic.Score)
 		prepared, err := s.applyTimeline(sample, m.Timeline)
 		return prepared, m.Diagnostic, m.EncodedBytes, err
 	}
@@ -165,6 +166,7 @@ func (s *crfSearch) measureWindow(ctx context.Context, video VideoArgs, sample S
 	// Only complete, aligned windows reach this point. Persist before deciding
 	// whether their scores pass: a quality miss is still a reusable measurement.
 	s.measurements[key] = m
+	s.rememberWindowScore(sample, m.Q, m.Diagnostic.Score)
 	s.initTimelines()
 	s.timelines[m.Window] = m.Timeline
 	if path != "" {

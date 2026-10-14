@@ -368,6 +368,11 @@ func seedProbeSessionAttempts(session *probeSession, result ProbeResult) {
 	// measured in a previous probe.
 	for _, attempt := range result.Attempts {
 		session.search.attempts[qFromCRF(attempt.CRF)] = attempt
+		if len(attempt.Samples) == len(session.search.samples) {
+			for i, sample := range session.search.samples {
+				session.search.rememberWindowScore(sample, qFromCRF(attempt.CRF), attempt.Samples[i].Score)
+			}
+		}
 	}
 	if result.Success {
 		selected := probeAttemptFromResult(result)
@@ -442,6 +447,7 @@ func (s *probeSession) Close() {
 }
 
 type crfSearch struct {
+	windowScores          map[sampleWindowKey]map[int]float64
 	cache                 *probeCacheHandle
 	measurements          map[string]windowMeasurement
 	reusedMeasurements    int
@@ -510,7 +516,7 @@ func (s *crfSearch) findForTarget(ctx context.Context, target float64) (ProbeAtt
 			low = q + 1
 			continue
 		}
-		if !passScore && !passSize {
+		if !passScore && !passSize && !attempt.partial {
 			s.reportTargetStop(target, attempt)
 			return best, found, nil
 		}
@@ -666,25 +672,39 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 	var totalSampleDuration time.Duration
 	var sampleScores []float64
 	var diagnostics []SampleDiagnostics
+	measured := make([]bool, len(s.samples))
+	scoreSlots := make([]sampleScore, len(s.samples))
+	diagnosticSlots := make([]SampleDiagnostics, len(s.samples))
 	video := buildVideoArgs(s.info, s.options.Preset, crf, s.options.Tune)
 	totalProbeOps := len(s.samples) * 2
 	completedProbeOps := 0
 
-	for i, sample := range s.samples {
+	for done, i := range s.windowOrder(q) {
+		sample := s.samples[i]
 		sample, diagnostic, encodedSize, err := s.measureWindow(ctx, video, sample, i+1, probeProgressScope(crf, completedProbeOps, totalProbeOps))
 		if err != nil {
 			return ProbeAttempt{}, err
 		}
 		completedProbeOps += 2
 		score := diagnostic.Score
-		diagnostics = append(diagnostics, diagnostic)
-		sampleScores = append(sampleScores, score)
-		scores = append(scores, sampleScore{Score: score, Duration: sample.measuredDuration()})
+		measured[i] = true
+		diagnosticSlots[i] = diagnostic
+		scoreSlots[i] = sampleScore{Score: score, Duration: sample.measuredDuration()}
+		// Execution order is only a fail-fast optimization. Aggregate and expose
+		// results in the original plan order, including outlier sample indices.
+		scores, sampleScores, diagnostics = nil, nil, nil
+		for j := range measured {
+			if measured[j] {
+				scores = append(scores, scoreSlots[j])
+				sampleScores = append(sampleScores, scoreSlots[j].Score)
+				diagnostics = append(diagnostics, diagnosticSlots[j])
+			}
+		}
 		totalSampleBytes += sample.SourceBytes
 		totalEncodedBytes += encodedSize
 		totalSampleDuration += sample.measuredDuration()
 		if failed, reason := partialFloorFailure(sampleScores, s.options.FloorVMAF); failed {
-			attempt := s.partialAttempt(crf, scores, sampleScores, totalSampleBytes, totalEncodedBytes, totalSampleDuration, i+1, len(s.samples), reason)
+			attempt := s.partialAttempt(crf, scores, sampleScores, totalSampleBytes, totalEncodedBytes, totalSampleDuration, done+1, len(s.samples), reason)
 			attempt.Samples = diagnostics
 			s.attempts[q] = attempt
 			return attempt, nil

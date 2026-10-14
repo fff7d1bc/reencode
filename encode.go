@@ -483,7 +483,7 @@ func shouldSkipAlreadyEncoded(info MediaInfo, opts EncodeOptions) bool {
 }
 
 func groupQualityOK(attempt ProbeAttempt, opts ProbeOptions) bool {
-	return attempt.Score >= opts.TargetVMAF && (attempt.WorstSampleScore >= opts.FloorVMAF || attempt.OutlierAccepted)
+	return !attempt.partial && attempt.Score >= opts.TargetVMAF && (attempt.WorstSampleScore >= opts.FloorVMAF || attempt.OutlierAccepted)
 }
 
 func groupFallbackOrError(ctx context.Context, opts EncodeOptions, inputs []groupInput, probeErr error) error {
