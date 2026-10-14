@@ -145,8 +145,9 @@ type sampleWindowKey struct {
 // Owned by one actionable input and shared by its sequential searches and final
 // verification. Facts are reusable only while the source snapshot still matches.
 type sourceFacts struct {
-	source    sourceSnapshot
-	timelines map[sampleWindowKey]frameTimeline
+	source       sourceSnapshot
+	timelines    map[sampleWindowKey]frameTimeline
+	measurements map[string]windowMeasurement
 }
 
 func (f *sourceFacts) check(path string) error {

@@ -164,6 +164,9 @@ func printCompareHuman(w io.Writer, result CompareResult) {
 		}
 		timing := fmt.Sprintf("%.2fs / %.2fs", row.Timing.EncodeSeconds, row.Timing.ScoreSeconds)
 		measurement := "fresh search"
+		if row.ReusedMeasurements > 0 {
+			measurement = fmt.Sprintf("%d windows reused", row.ReusedMeasurements)
+		}
 		if row.CacheHit {
 			timing = "—"
 			measurement = "cached"

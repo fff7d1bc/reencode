@@ -102,6 +102,11 @@ complete rendered text and run `git diff --check`.
   downward. It favors shared quality consistency over per-file size optimality.
 - Persist successful group and single-file probe attempts before applying
   `--fallback-crf` so retries can reuse completed work.
+- Persist complete, aligned window measurements before quality decisions and
+  only after rechecking the source snapshot. Measurement identity includes
+  actual encoder args and timing/scoring policy, not decision thresholds.
+  Recompute decisions on reuse, never synthesize passes from partial windows.
+  `--no-cache` means no persistent I/O and refresh ignores preexisting records.
 - VMAF scoring resets timestamps on both streams and uses harmonic mean. The
   weighted mean must meet the target, while the worst sample must meet the
   separate floor unless nearby-window confirmation accepts one borderline

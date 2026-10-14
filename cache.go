@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const probeCacheSchemaVersion = 2
+const probeCacheSchemaVersion = 3
 const probeCacheSampleSize = 1024 * 1024
 
 type probeCacheOptions struct {
@@ -190,14 +190,11 @@ func loadProbeCache(handle *probeCacheHandle, currentPath string) (ProbeResult, 
 	// Cached durations describe a previous run and must not masquerade as
 	// timings for the current comparison.
 	result.Timing = ProbeTiming{}
+	result.ReusedMeasurements = 0
 	return result, true, nil
 }
 
 func storeProbeCache(handle *probeCacheHandle, result ProbeResult) error {
-	dir := filepath.Dir(handle.Path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
 	envelope := probeCacheEnvelope{
 		SchemaVersion:     probeCacheSchemaVersion,
 		BinaryHash:        handle.BinaryHash,
@@ -208,7 +205,15 @@ func storeProbeCache(handle *probeCacheHandle, result ProbeResult) error {
 		CreatedAt:         time.Now().UTC(),
 		Result:            result,
 	}
-	data, err := json.MarshalIndent(envelope, "", "  ")
+	return writeCacheJSON(handle.Path, envelope)
+}
+
+func writeCacheJSON(path string, value any) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -228,7 +233,7 @@ func storeProbeCache(handle *probeCacheHandle, result ProbeResult) error {
 	}
 	// Write through a temp file so an interrupted cache update never leaves a
 	// truncated JSON document that future runs might try to parse.
-	if err := os.Rename(tmpName, handle.Path); err != nil {
+	if err := os.Rename(tmpName, path); err != nil {
 		_ = os.Remove(tmpName)
 		return err
 	}

@@ -425,6 +425,20 @@ Successful probe results are cached under:
 ~/.cache/reencode/probe/
 ```
 
+Each fully scored, timestamp-validated window is also saved immediately. An
+interrupted or unsuccessful search can resume those measurements, including
+scores below the current target. Records contain scores, frame timing, and byte
+counts, not encoded video. Changing the target, floor, size cap, or outlier
+policy reuses compatible measurements but recomputes the decision. JSON's
+`reused_measurements` and human summaries distinguish this from a complete
+`cache_hit`. Incomplete windows are never treated as passing measurements.
+
+`--no-cache` disables persistent reads and writes. `--refresh-cache` ignores old
+disk records while allowing reuse of work completed within this invocation.
+Corrupt window records are reported and measured again. Cache write errors do
+not discard valid probe work. Older schema files remain on disk and are not
+reused. Final quality verification never reuses probe quality measurements.
+
 The cache key includes the current binary SHA-512, probe-affecting options,
 cache schema version, an external ffmpeg/ffprobe fingerprint, and a fast input
 fingerprint. The external fingerprint is based on ffmpeg and ffprobe version
