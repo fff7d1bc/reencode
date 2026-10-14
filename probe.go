@@ -17,6 +17,7 @@ type ProbeOptions struct {
 	Tune              string
 	VMAFProfile       string
 	runtime           RuntimeVersions
+	captureBackend    string
 	Preset            string
 	JSON              bool
 	TargetVMAF        float64
@@ -259,6 +260,9 @@ func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keep
 	var err error
 	runtimeStart := time.Now()
 	opts.runtime, err = checkScoringRuntime(ctx, opts, resolveVMAFModel(opts, info))
+	if err == nil {
+		opts.captureBackend, err = checkCaptureSupport(ctx, opts)
+	}
 	runtimeSeconds = time.Since(runtimeStart).Seconds()
 	if err != nil {
 		return ProbeResult{File: file, Tune: opts.Tune, Model: resolveVMAFModel(opts, info), TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF}, nil, nil, err
@@ -657,7 +661,7 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 	completedProbeOps := 0
 
 	for i, sample := range s.samples {
-		sample, err := s.prepareSample(ctx, sample)
+		sample, err := s.prepareProbeSample(ctx, sample)
 		if err != nil {
 			return ProbeAttempt{}, err
 		}
@@ -676,6 +680,12 @@ func (s *crfSearch) evaluate(ctx context.Context, q int) (ProbeAttempt, error) {
 			return ProbeAttempt{}, err
 		}
 		completedProbeOps++
+		if s.options.captureBackend == capturePolicy {
+			sample, err = s.applyTimeline(sample, s.timelines[sampleWindowKey{sample.Start, sample.Duration, sample.FullPass}])
+			if err != nil {
+				return ProbeAttempt{}, err
+			}
+		}
 		score := diagnostic.Score
 		diagnostics = append(diagnostics, diagnostic)
 		sampleScores = append(sampleScores, score)
@@ -958,7 +968,7 @@ func (s *crfSearch) maybeConfirmOutlier(ctx context.Context, q int, target float
 	attempt.OutlierScore = attempt.sampleScores[idx]
 	video := buildVideoArgs(s.info, s.options.Preset, attempt.CRF, s.options.Tune)
 	for i, sample := range neighbors {
-		sample, err := s.prepareSample(ctx, sample)
+		sample, err := s.prepareProbeSample(ctx, sample)
 		if err != nil {
 			return attempt, err
 		}
@@ -1134,6 +1144,9 @@ func (s *crfSearch) scoreWindow(ctx context.Context, sample SampleFile, distorte
 			return SampleDiagnostics{}, err
 		}
 		s.modelPath = path
+	}
+	if s.options.captureBackend == capturePolicy {
+		return s.scoreCapturedWindow(ctx, sample, distorted, final, progress, model)
 	}
 	if sample.Timeline == nil {
 		return SampleDiagnostics{}, fmt.Errorf("sample timeline was not prepared")

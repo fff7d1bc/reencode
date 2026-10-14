@@ -21,6 +21,7 @@ var errNoVideoStream = errors.New("no video stream found")
 
 type MediaInfo struct {
 	preparation    ProbeTiming
+	facts          *sourceFacts
 	Path           string
 	Duration       time.Duration
 	StartTime      time.Duration
@@ -89,7 +90,16 @@ func probeInputMetadata(ctx context.Context, path string, forceVideo bool) (info
 	// Eligibility checks can run several ffprobe processes in parallel. Thread
 	// the command context through this path so Ctrl-C can stop the check phase
 	// instead of waiting for every queued input to finish.
-	return probeMediaContext(ctx, path)
+	stat, err := os.Stat(path)
+	if err != nil {
+		return MediaInfo{}, err
+	}
+	info, err = probeMediaContext(ctx, path)
+	if err == nil {
+		info.facts = &sourceFacts{source: snapshotSource(stat), timelines: make(map[sampleWindowKey]frameTimeline)}
+		err = info.facts.check(path)
+	}
+	return info, err
 }
 
 func validateInputFrames(ctx context.Context, info MediaInfo) (result MediaInfo, retErr error) {

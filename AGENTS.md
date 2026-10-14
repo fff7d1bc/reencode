@@ -153,6 +153,11 @@ Add focused tests when changing:
   raw-video serialization. Observe both streams before timestamp normalization.
   Test unequal stream lengths so shortest-frame synchronization cannot hide
   extra frames. Sidecars are scratch state even with `--keep-temp`.
+- Select the capture backend by a runtime capability check and include its
+  versioned timing policy in cache identity. Only capability failure permits
+  compatibility inspection. Malformed captures and alignment errors are fatal.
+  Source-window facts may be shared while their snapshot matches, but final
+  quality verification must always score the actual final output.
 - Cover skip-before-decode ordering, metadata reuse, shared thread limits,
   cancellation while waiting for a decoder slot, and threaded timestamp parity.
 - Long inspection and batch-check phases need visible status. Distinguish

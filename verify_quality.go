@@ -58,6 +58,11 @@ func verificationTarget(opts ProbeOptions, probe *ProbeResult) float64 {
 }
 
 func verifyFinalQuality(ctx context.Context, opts ProbeOptions, source MediaInfo, outputPath string, probe *ProbeResult) error {
+	var err error
+	opts.captureBackend, err = checkCaptureSupport(ctx, opts)
+	if err != nil {
+		return err
+	}
 	output, err := probeMediaContext(ctx, outputPath)
 	if err != nil {
 		return err

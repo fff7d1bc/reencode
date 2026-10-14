@@ -142,6 +142,46 @@ type sampleWindowKey struct {
 	Full            bool
 }
 
+// Owned by one actionable input and shared by its sequential searches and final
+// verification. Facts are reusable only while the source snapshot still matches.
+type sourceFacts struct {
+	source    sourceSnapshot
+	timelines map[sampleWindowKey]frameTimeline
+}
+
+func (f *sourceFacts) check(path string) error {
+	if f == nil {
+		return nil
+	}
+	return verifySourceSnapshot(path, f.source)
+}
+
+func (s *crfSearch) initTimelines() {
+	if s.timelines != nil {
+		return
+	}
+	if s.info.facts != nil {
+		s.timelines = s.info.facts.timelines
+	} else {
+		s.timelines = make(map[sampleWindowKey]frameTimeline)
+	}
+}
+
+func (s *crfSearch) prepareProbeSample(ctx context.Context, sample SampleFile) (SampleFile, error) {
+	if s.options.captureBackend != capturePolicy {
+		return s.prepareSample(ctx, sample)
+	}
+	if err := s.info.facts.check(s.info.Path); err != nil {
+		return sample, err
+	}
+	s.initTimelines()
+	if timeline, ok := s.timelines[sampleWindowKey{sample.Start, sample.Duration, sample.FullPass}]; ok {
+		return s.applyTimeline(sample, timeline)
+	}
+	// Until scoring observes the decoded frames, FPS is only a progress hint.
+	return sample, nil
+}
+
 func (s *crfSearch) inspectTimeline(ctx context.Context, path string, origin, start, duration time.Duration, full bool, role string) (frameTimeline, error) {
 	started := time.Now()
 	defer func() { s.timing.InspectionSeconds += time.Since(started).Seconds() }()
@@ -151,10 +191,11 @@ func (s *crfSearch) inspectTimeline(ctx context.Context, path string, origin, st
 }
 
 func (s *crfSearch) prepareSample(ctx context.Context, sample SampleFile) (SampleFile, error) {
-	key := sampleWindowKey{sample.Start, sample.Duration, sample.FullPass}
-	if s.timelines == nil {
-		s.timelines = make(map[sampleWindowKey]frameTimeline)
+	if err := s.info.facts.check(s.info.Path); err != nil {
+		return sample, err
 	}
+	key := sampleWindowKey{sample.Start, sample.Duration, sample.FullPass}
+	s.initTimelines()
 	timeline, ok := s.timelines[key]
 	if !ok {
 		var err error
@@ -162,8 +203,15 @@ func (s *crfSearch) prepareSample(ctx context.Context, sample SampleFile) (Sampl
 		if err != nil {
 			return sample, err
 		}
+		if err := s.info.facts.check(s.info.Path); err != nil {
+			return sample, err
+		}
 		s.timelines[key] = timeline
 	}
+	return s.applyTimeline(sample, timeline)
+}
+
+func (s *crfSearch) applyTimeline(sample SampleFile, timeline frameTimeline) (SampleFile, error) {
 	sample.Timeline = &timeline
 	sample.Frames = int64(len(timeline.Times))
 	if !sample.FullPass {

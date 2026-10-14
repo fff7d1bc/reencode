@@ -123,6 +123,10 @@ func runVMAFReport(ctx context.Context, run FFMpegRun, path string, frames int) 
 	if err != nil {
 		return vmafReport{}, err
 	}
+	return completedVMAFReport(res, path, frames)
+}
+
+func completedVMAFReport(res FFMpegResult, path string, frames int) (vmafReport, error) {
 	if res.LastFrame != int64(frames) {
 		return vmafReport{}, fmt.Errorf("VMAF frame coverage mismatch: scored %d, expected %d", res.LastFrame, frames)
 	}

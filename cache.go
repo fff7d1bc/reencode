@@ -16,6 +16,7 @@ const probeCacheSchemaVersion = 2
 const probeCacheSampleSize = 1024 * 1024
 
 type probeCacheOptions struct {
+	TimingPolicy      string          `json:"timing_policy"`
 	Tune              string          `json:"tune"`
 	Model             VMAFModelInfo   `json:"model"`
 	Runtime           RuntimeVersions `json:"runtime"`
@@ -141,6 +142,7 @@ func normalizedProbeCacheOptionsWithModel(opts ProbeOptions, model string) probe
 	// is included because changing it changes scores even with identical
 	// samples and encoder settings.
 	return probeCacheOptions{
+		TimingPolicy:      opts.captureBackend,
 		Tune:              opts.Tune,
 		Preset:            opts.Preset,
 		TargetVMAF:        opts.TargetVMAF,

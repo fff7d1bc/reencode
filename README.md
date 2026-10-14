@@ -162,7 +162,7 @@ For each file, probing does this:
    unless `--samples` is set.
    Windows are bounded by playback time, not average-FPS frame estimates.
    Full-pass probes run to EOF. Decoded frame timestamps are checked before
-   scoring, and measured window coverage weights scores and size estimates.
+   accepting scores, and measured window coverage weights scores and size estimates.
 3. Encode each sample window with the same SVT-AV1 settings used for the final
    encode, including preset, CRF, pixel format, keyframe interval, and SVT
    parameters.
@@ -170,6 +170,20 @@ For each file, probing does this:
    `libvmaf`.
 5. Search CRF values and select the highest CRF that still satisfies the
    quality rules and sample-size cap.
+
+On supported ffmpeg builds, timestamp validation observes the frames already
+being decoded for VMAF. It does not run separate source and sample timestamp
+decode passes. A small startup capability check verifies this backend,
+including unequal stream lengths. Older builds fall back to bounded ffprobe
+inspection with a diagnostic. Malformed captures and alignment failures are
+errors, not reasons to retry with weaker validation.
+
+Bounded windows decode up to two extra seconds of source context to measure
+the last frame's coverage. That context is neither encoded nor scored. A
+two-hour input normally uses twelve 20-second windows, not a full-video scan.
+`--verify-quality` always scores the actual final output. It reuses source
+window facts when available, otherwise it inspects those bounded source windows
+to make precise cuts. No probe score substitutes for final-output verification.
 
 The CRF search starts with a broad binary-search style probe, then uses already
 measured pass/fail points to estimate the next useful CRF. This keeps the search

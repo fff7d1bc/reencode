@@ -63,7 +63,7 @@ func vmafFilter(info MediaInfo) string {
 
 func configuredVMAFFilter(scale, model string) string {
 	format := "format=" + defaultVMAFPixFmt + ","
-	// Timelines are validated before scoring. Pair those frames by index after
+	// Timelines must be validated before accepting scores. Pair frames by index after
 	// resetting timestamps so Matroska's millisecond rounding cannot make
 	// shortest=true discard the last reference frame. Quality diagnostics keep
 	// the original timestamps and durations, not this scoring-only clock.
