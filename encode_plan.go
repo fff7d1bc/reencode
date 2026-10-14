@@ -29,6 +29,9 @@ func validateEncodePaths(opts EncodeOptions, files []string, actionable []eligib
 		if source.info == nil {
 			return fmt.Errorf("inspect input %s: file no longer exists", displayPath(input.File))
 		}
+		if input.Source.info != nil && !sourceMatchesSnapshot(source.info, input.Source) {
+			return fmt.Errorf("source changed since eligibility check: %s", displayPath(input.File))
+		}
 		input.Source = snapshotSource(source.info)
 		for _, previous := range actionableRefs {
 			if encodePathsAlias(source, previous) {

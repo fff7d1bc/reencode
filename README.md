@@ -91,8 +91,8 @@ Inputs are skipped when built-in content sniffing does not identify them as
 video files. Common QuickTime MOV headers are recognized regardless of filename
 extension. ffprobe must still confirm a valid video stream.
 
-Inputs whose primary video carries alpha (transparency) are rejected before
-probing or encoding. The AV1 output cannot preserve alpha, and VMAF cannot
+Actionable inputs whose primary video carries alpha (transparency) are rejected
+before probing or encoding. The AV1 output cannot preserve alpha, and VMAF cannot
 detect its loss. This safety check also applies with `--crf`, `--fallback-crf`,
 and `--force-video`. The source remains unchanged.
 
@@ -108,6 +108,12 @@ codec is AV1. Use `--force-reencode` to bypass the already-AV1 skip. Use
 `--skip-name TEXT` to skip inputs whose basename contains a marker you choose,
 such as `[reencoded]`. The option can be repeated.
 
+Name filters run before media inspection. Already-AV1 skips use basic stream
+metadata and do not decode frames for HDR or timestamp checks. Files selected
+for processing still undergo the HDR and alpha checks, including forced
+reencodes. Inspected metadata is reused while the source identity, size, and
+modification time remain unchanged.
+
 Some valid containers, including MPEG transport streams, are not recognized by
 the built-in sniffer. Use `--force-video` to send regular-file inputs directly
 to ffprobe. The flag bypasses only content sniffing. ffprobe must still find a
@@ -118,6 +124,15 @@ prints a compact summary before starting probe or encode work. The work counter
 then counts only actionable files, not every path matched by the shell. This
 check runs up to four files in parallel by default. Use `--check-workers N` to
 adjust it.
+
+Frame inspection has a shared decoder-thread budget of one quarter of the
+available logical CPUs, rounded down with a minimum of one. CPU availability
+follows Go's `GOMAXPROCS`, including configured limits. Concurrent eligibility
+checks divide that budget, with excess decoding work waiting for a slot.
+For example, 32 available CPUs allow eight threads for a sequential timestamp
+scan or two threads each for four simultaneous HDR checks. This is a decoder
+thread budget, not a hard CPU-usage limit. Final encoding and VMAF scoring keep
+their own threading behavior.
 
 Useful encode examples:
 

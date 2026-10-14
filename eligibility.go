@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -43,6 +44,7 @@ type skippedInput struct {
 type eligibilityEntry struct {
 	File       string
 	Info       MediaInfo
+	Source     sourceSnapshot
 	Skipped    bool
 	SkipReason eligibilityReason
 	Pattern    string
@@ -61,6 +63,8 @@ type eligibilityResult struct {
 type eligibilityClassifier func(context.Context, eligibilityMode, string, EncodeOptions) eligibilityEntry
 
 func collectEligibleInputs(ctx context.Context, mode eligibilityMode, files []string, opts EncodeOptions) eligibilityResult {
+	workers := eligibilityWorkerCount(len(files), opts.ProbeOptions.CheckWorkers)
+	ctx = context.WithValue(ctx, inspectionBudgetKey{}, newInspectionBudget(runtime.GOMAXPROCS(0), workers))
 	return collectEligibleInputsWithClassifier(ctx, mode, files, opts, classifyEligibilityInput)
 }
 
@@ -135,10 +139,13 @@ func eligibilityResultFromEntries(entries []eligibilityEntry) eligibilityResult 
 			result.Skipped = append(result.Skipped, skippedInput{File: entry.File, Reason: entry.SkipReason, Pattern: entry.Pattern})
 			continue
 		}
-		result.Actionable = append(result.Actionable, eligibleInput{File: entry.File, Info: entry.Info})
+		result.Actionable = append(result.Actionable, eligibleInput{File: entry.File, Info: entry.Info, Source: entry.Source})
 	}
 	return result
 }
+
+var inspectEligibilityMetadata = probeInputMetadata
+var inspectEligibilityHDR = inspectInitialHDR
 
 func classifyEligibilityInput(ctx context.Context, mode eligibilityMode, file string, opts EncodeOptions) eligibilityEntry {
 	if pattern, ok := skipNameMatch(file, opts.ProbeOptions.SkipNames); ok {
@@ -147,7 +154,12 @@ func classifyEligibilityInput(ctx context.Context, mode eligibilityMode, file st
 	// This is the only eligibility step that may spawn ffprobe. Keep all
 	// filename-only checks above it so broad globs and explicit skip markers do
 	// not spend work on paths we already know are no-ops.
-	info, err := probeInputMediaContextWithPolicy(ctx, file, opts.ProbeOptions.ForceVideo)
+	stat, err := os.Stat(file)
+	if err != nil {
+		return eligibilityEntry{File: file, Fatal: err}
+	}
+	source := snapshotSource(stat)
+	info, err := inspectEligibilityMetadata(ctx, file, opts.ProbeOptions.ForceVideo)
 	if err != nil {
 		switch {
 		case errors.Is(err, errNotVideoFile):
@@ -165,7 +177,15 @@ func classifyEligibilityInput(ctx context.Context, mode eligibilityMode, file st
 			return eligibilityEntry{File: file, Info: info, Skipped: true, SkipReason: skip.Reason}
 		}
 	}
-	return eligibilityEntry{File: file, Info: info}
+	// Skip decisions need only metadata. Decode the HDR prefix only for files
+	// we may actually process, including forced reencodes and explicit CRF.
+	info, err = validateInputFrames(ctx, info)
+	if err == nil {
+		// The retained metadata belongs to this exact source snapshot. Reuse it
+		// later only while identity, size, and mtime still match.
+		err = verifySourceSnapshot(file, source)
+	}
+	return eligibilityEntry{File: file, Info: info, Source: source, Fatal: err}
 }
 
 func classifyEncodeMedia(file string, info MediaInfo, opts EncodeOptions) (skippedInput, bool, error) {

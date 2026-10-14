@@ -65,6 +65,14 @@ func probeInputMediaContext(ctx context.Context, path string) (MediaInfo, error)
 }
 
 func probeInputMediaContextWithPolicy(ctx context.Context, path string, forceVideo bool) (MediaInfo, error) {
+	info, err := probeInputMetadata(ctx, path, forceVideo)
+	if err != nil {
+		return info, err
+	}
+	return validateInputFrames(ctx, info)
+}
+
+func probeInputMetadata(ctx context.Context, path string, forceVideo bool) (MediaInfo, error) {
 	ok, err := candidateVideo(path, forceVideo)
 	if err != nil {
 		return MediaInfo{}, err
@@ -75,16 +83,17 @@ func probeInputMediaContextWithPolicy(ctx context.Context, path string, forceVid
 	// Eligibility checks can run several ffprobe processes in parallel. Thread
 	// the command context through this path so Ctrl-C can stop the check phase
 	// instead of waiting for every queued input to finish.
-	info, err := probeMediaContext(ctx, path)
-	if err != nil {
-		return info, err
-	}
+	return probeMediaContext(ctx, path)
+}
+
+func validateInputFrames(ctx context.Context, info MediaInfo) (MediaInfo, error) {
 	if err := validateSourceVideo(info); err != nil {
 		return info, err
 	}
 	// Some containers expose HDR side data only after decoding. Inspect a
 	// bounded prefix before accepting inputs, including explicit-CRF runs.
-	info.HDR, err = inspectInitialHDR(ctx, path)
+	var err error
+	info.HDR, err = inspectEligibilityHDR(ctx, info.Path)
 	if err != nil {
 		return info, err
 	}
@@ -134,12 +143,10 @@ func (m videoColorMetadata) hdrReason() string {
 	return ""
 }
 
-func inspectInitialHDR(parent context.Context, path string) (string, error) {
-	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-of", "json",
+func inspectInitialHDR(ctx context.Context, path string) (string, error) {
+	out, err := frameProbeOutput(ctx, 30*time.Second, "-v", "error", "-of", "json",
 		"-select_streams", "v:0", "-read_intervals", "%+#64", "-show_frames",
-		"-show_entries", "frame=color_transfer,color_primaries,color_space,color_range:frame_side_data=side_data_type", path).Output()
+		"-show_entries", "frame=color_transfer,color_primaries,color_space,color_range:frame_side_data=side_data_type", path)
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("inspect initial video metadata for %s: %w", displayPath(path), ctx.Err())
 	}

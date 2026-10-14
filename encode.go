@@ -47,16 +47,10 @@ func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) i
 		return 1
 	}
 	printEligibilityStart(files, false)
-	if !opts.DryRun || !opts.CRFSet {
-		if _, err := checkEncoderTune(ctx, opts.ProbeOptions); err != nil {
-			if ctx.Err() != nil {
-				return 130
-			}
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-	}
 	eligibility := collectEligibleInputs(ctx, eligibilityEncode, files, opts)
+	if ctx.Err() != nil {
+		return 130
+	}
 	if eligibility.Fatal != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", eligibility.Fatal)
 		return 1
@@ -66,6 +60,15 @@ func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) i
 		return 1
 	}
 	printEligibilitySummary(eligibility, len(files), false)
+	if len(eligibility.Actionable) > 0 && (!opts.DryRun || !opts.CRFSet) {
+		if _, err := checkEncoderTune(ctx, opts.ProbeOptions); err != nil {
+			if ctx.Err() != nil {
+				return 130
+			}
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
 	if !shouldSummarizeEligibility(files, false) {
 		for _, skipped := range eligibility.Skipped {
 			printSkippedInput(skipped)
@@ -120,7 +123,7 @@ func encodeOne(ctx context.Context, opts EncodeOptions, input eligibleInput) err
 	if opts.CRFSet {
 		return encodeOneWithCRF(ctx, opts, input, opts.CRF, nil)
 	}
-	crf, probe, err := chooseCRF(ctx, opts, input.File)
+	crf, probe, err := chooseCRF(ctx, opts, input.Info)
 	if err != nil {
 		return err
 	}
@@ -364,7 +367,7 @@ func encodeGroup(ctx context.Context, opts EncodeOptions, eligible []eligibleInp
 			return err
 		}
 		fmt.Fprintf(os.Stderr, ">>> Group probing (%d of %d) %s ...\n", i+1, len(inputs), displayPath(inputs[i].File))
-		result, session, cache, err := probeFileSession(ctx, opts.ProbeOptions, inputs[i].File)
+		result, session, cache, err := probeMediaFile(ctx, opts.ProbeOptions, inputs[i].Info, true)
 		if err != nil {
 			if session != nil {
 				session.Close()
@@ -543,8 +546,8 @@ func groupProbeMetadata(input groupInput, opts ProbeOptions, crf float64) *Probe
 	}
 }
 
-func chooseCRF(ctx context.Context, opts EncodeOptions, file string) (float64, *ProbeResult, error) {
-	result, session, cache, err := probeFileSession(ctx, opts.ProbeOptions, file)
+func chooseCRF(ctx context.Context, opts EncodeOptions, info MediaInfo) (float64, *ProbeResult, error) {
+	result, session, cache, err := probeMediaFile(ctx, opts.ProbeOptions, info, true)
 	if session != nil {
 		defer session.Close()
 	}
@@ -553,7 +556,7 @@ func chooseCRF(ctx context.Context, opts EncodeOptions, file string) (float64, *
 	}
 	persistProbeSessionCache(ctx, opts.ProbeOptions, cache, session, result)
 	if opts.FallbackCRFSet {
-		fmt.Fprintf(os.Stderr, "%s: probe failed, falling back to CRF %s: %v\n", displayPath(file), terseFloat(opts.FallbackCRF), err)
+		fmt.Fprintf(os.Stderr, "%s: probe failed, falling back to CRF %s: %v\n", displayPath(info.Path), terseFloat(opts.FallbackCRF), err)
 		return opts.FallbackCRF, nil, nil
 	}
 	return 0, nil, fmt.Errorf("probe failed and --fallback-crf is not set: %w", err)

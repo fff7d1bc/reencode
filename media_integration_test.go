@@ -72,7 +72,9 @@ func TestMediaIntegrationRejectsHDR(t *testing.T) {
 	requireMediaIntegration(t)
 	for _, transfer := range []string{"smpte2084", "arib-std-b67"} {
 		t.Run(transfer, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "hdr.mkv")
+			// Keep HDR fixtures actionable in encode mode. AV1-in-MKV inputs
+			// are intentionally skipped before HDR inspection unless forced.
+			path := filepath.Join(t.TempDir(), "hdr.mp4")
 			mediaFixture(t, "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24", "-t", "1",
 				"-vf", "setparams=color_trc="+transfer+":color_primaries=bt2020:colorspace=bt2020nc",
 				"-c:v", "libsvtav1", "-preset", "11", "-pix_fmt", "yuv420p10le", "-color_trc", transfer, "-color_primaries", "bt2020", path)

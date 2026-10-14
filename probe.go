@@ -100,6 +100,9 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 	}
 	printEligibilityStart(files, opts.JSON)
 	eligibility := collectEligibleInputs(ctx, eligibilityProbe, files, EncodeOptions{ProbeOptions: opts})
+	if ctx.Err() != nil {
+		return 130
+	}
 	if eligibility.Fatal != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", eligibility.Fatal)
 		return 1
@@ -126,7 +129,7 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 			continue
 		}
 		file := entry.File
-		result, err := ProbeFile(ctx, opts, file)
+		result, err := probeInspectedFile(ctx, opts, entry.Info, entry.Source)
 		if err != nil {
 			if ctx.Err() != nil {
 				return 130
@@ -198,6 +201,17 @@ func printProbeHuman(result ProbeResult) {
 
 func ProbeFile(ctx context.Context, opts ProbeOptions, file string) (ProbeResult, error) {
 	result, session, _, err := probeFile(ctx, opts, file, false)
+	if session != nil {
+		session.Close()
+	}
+	return result, err
+}
+
+func probeInspectedFile(ctx context.Context, opts ProbeOptions, info MediaInfo, source sourceSnapshot) (ProbeResult, error) {
+	if err := verifySourceSnapshot(info.Path, source); err != nil {
+		return ProbeResult{}, err
+	}
+	result, session, _, err := probeMediaFile(ctx, opts, info, false)
 	if session != nil {
 		session.Close()
 	}

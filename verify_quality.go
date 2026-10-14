@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"time"
 )
 
@@ -15,10 +14,8 @@ type finalScoreWindow struct {
 
 // Anchor the two playback clocks to their first decoded video frames. Audio
 // priming can make the MKV format start negative without moving its video.
-func firstVideoTime(parent context.Context, info MediaInfo) (time.Duration, error) {
-	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-of", "json", "-select_streams", "v:0", "-read_intervals", "%+#64", "-show_frames", "-show_entries", "frame=best_effort_timestamp_time", info.Path).Output()
+func firstVideoTime(ctx context.Context, info MediaInfo) (time.Duration, error) {
+	out, err := frameProbeOutput(ctx, 30*time.Second, "-v", "error", "-of", "json", "-select_streams", "v:0", "-read_intervals", "%+#64", "-show_frames", "-show_entries", "frame=best_effort_timestamp_time:frame_side_data=", info.Path)
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
 	}

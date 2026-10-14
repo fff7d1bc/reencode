@@ -117,7 +117,11 @@ func runCompareCommand(ctx context.Context, opts CompareOptions, files []string)
 		case entry.Fatal != nil:
 			result.Error = entry.Fatal.Error()
 		default:
-			result = compareInput(ctx, opts, entry.Info)
+			if err := verifySourceSnapshot(entry.File, entry.Source); err != nil {
+				result.Error = err.Error()
+			} else {
+				result = compareInput(ctx, opts, entry.Info)
+			}
 		}
 		if ctx.Err() != nil {
 			return 130

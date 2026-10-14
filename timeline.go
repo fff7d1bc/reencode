@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os/exec"
 	"strconv"
 	"time"
 )
@@ -28,7 +27,7 @@ func timestampDuration(value string) (time.Duration, error) {
 
 func inspectTimeline(ctx context.Context, path string, origin, start, duration time.Duration, full bool) (frameTimeline, error) {
 	args := []string{"-v", "error", "-of", "json", "-select_streams", "v:0", "-show_frames",
-		"-show_entries", "frame=best_effort_timestamp_time,duration_time,pkt_duration_time"}
+		"-show_entries", "frame=best_effort_timestamp_time,duration_time,pkt_duration_time:frame_side_data="}
 	if !full {
 		// Seek can land before the window. Request an absolute end (not +D,
 		// which ffprobe measures from the seek point), then filter by PTS.
@@ -36,7 +35,7 @@ func inspectTimeline(ctx context.Context, path string, origin, start, duration t
 		args = append(args, "-read_intervals", terseFloat((origin+start).Seconds())+"%"+terseFloat((origin+start+duration+2*time.Second).Seconds()))
 	}
 	args = append(args, "-i", path)
-	out, err := exec.CommandContext(ctx, "ffprobe", args...).Output()
+	out, err := frameProbeOutput(ctx, 0, args...)
 	if ctx.Err() != nil {
 		return frameTimeline{}, ctx.Err()
 	}
