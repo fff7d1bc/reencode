@@ -32,7 +32,7 @@ export GOFLAGS
 export GOTOOLCHAIN
 export GOTELEMETRY=off
 
-.PHONY: all build static test run install clean
+.PHONY: all build static test test-integration run install clean
 
 all: build
 
@@ -43,6 +43,10 @@ static: $(STATIC_BIN)
 test:
 	mkdir -p "$(GOCACHE)" "$(GOMODCACHE)" "$(GOPATH)" "$(GOTMPDIR)" "$(GOTELEMETRYDIR)"
 	go test .
+
+test-integration: build
+	mkdir -p "$(GOCACHE)" "$(GOMODCACHE)" "$(GOPATH)" "$(GOTMPDIR)" "$(GOTELEMETRYDIR)"
+	REENCODE_INTEGRATION=1 REENCODE_TEST_BINARY="$(BIN)" go test -count=1 .
 
 $(BIN): $(GO_MODULE_FILES) $(GO_SOURCES) $(MODEL_ASSETS)
 	mkdir -p "$(BIN_DIR)" "$(GOCACHE)" "$(GOMODCACHE)" "$(GOPATH)" "$(GOTMPDIR)" "$(GOTELEMETRYDIR)"

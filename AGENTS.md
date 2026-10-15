@@ -36,6 +36,10 @@ embedded ffmpeg library.
 ## Commands
 
 - `make test`: run `go test .` with repository-local Go state.
+- `make test-integration`: build the actual CLI, then run opt-in media and
+  fresh-process CLI regressions. Requires the runtime ffmpeg/ffprobe stack.
+  CLI tracing requires a POSIX shell. The isolated CLI cache test uses Linux's
+  `XDG_CACHE_HOME` override. These platform-specific tests skip elsewhere.
 - `make -B build`: force a fresh binary at
   `build/<goos>-<goarch>/bin/reencode`.
 - `make -B static`: force a stripped `CGO_ENABLED=0` binary at
@@ -178,6 +182,11 @@ Add focused tests when changing:
   quality verification must always score the actual final output.
 - Cover skip-before-decode ordering, metadata reuse, shared thread limits,
   cancellation while waiting for a decoder slot, and threaded timestamp parity.
+- Backend changes require fresh-process CLI coverage with default temp settings,
+  not only direct-function tests or forced backend selection. Assert the timing
+  policy and subprocess arguments: capture-mode probing must not run per-window
+  ffprobe timestamp scans. Keep the bounded HDR-prefix check. Exercise explicit
+  unsupported features separately from operational faults and interruption.
 - Long inspection and batch-check phases need visible status. Distinguish
   elapsed-time activity from measured progress and stall detection. File-level
   activity scopes survive subprocess handoffs. Only the visible scope may

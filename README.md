@@ -557,12 +557,16 @@ make test
 make build
 ```
 
-To also run real-media regression tests, install the runtime ffmpeg and ffprobe
-requirements and run:
+To also run real-media and fresh-process CLI regression tests, install the
+runtime ffmpeg and ffprobe requirements and run:
 
 ```sh
-REENCODE_INTEGRATION=1 make test
+make test-integration
 ```
+
+This builds and tests the local binary without installing it. CLI subprocess
+tracing tests require a POSIX shell. The isolated CLI cache-reuse test runs on
+Linux. Tests specific to other platforms are skipped, not treated as passes.
 
 The binary is written to:
 
