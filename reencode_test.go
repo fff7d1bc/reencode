@@ -889,6 +889,51 @@ func TestGroupFallbackDoesNotEncodeAfterCancellation(t *testing.T) {
 	}
 }
 
+func TestSingleFileFallbackRespectsCancellation(t *testing.T) {
+	old := checkScoringRuntime
+	t.Cleanup(func() { checkScoringRuntime = old })
+	for _, canceled := range []bool{false, true} {
+		for _, fallback := range []bool{false, true} {
+			t.Run(fmt.Sprintf("canceled=%t/fallback=%t", canceled, fallback), func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				probeErr := errors.New("scoring failed")
+				checkScoringRuntime = func(context.Context, ProbeOptions, VMAFModelInfo) (RuntimeVersions, error) {
+					if canceled {
+						cancel()
+						return RuntimeVersions{}, fmt.Errorf("sample vmaf: interrupted: %w", ctx.Err())
+					}
+					return RuntimeVersions{}, probeErr
+				}
+				var buf bytes.Buffer
+				opts := EncodeOptions{ProbeOptions: defaultProbeOptions(), FallbackCRFSet: fallback, FallbackCRF: 32}
+				opts.ProbeOptions.Progress = &ProgressDisplay{out: &buf, live: true}
+				crf, probe, err := chooseCRF(ctx, opts, validationSourceInfo())
+				switch {
+				case canceled:
+					if !errors.Is(err, context.Canceled) || crf != 0 || probe != nil {
+						t.Fatalf("interruption selected a fallback: crf=%v probe=%v err=%v", crf, probe, err)
+					}
+				case fallback:
+					if err != nil || crf != 32 || probe != nil {
+						t.Fatalf("ordinary failure did not use fallback: crf=%v probe=%v err=%v", crf, probe, err)
+					}
+				default:
+					if !errors.Is(err, probeErr) {
+						t.Fatalf("lost probe error: %v", err)
+					}
+				}
+				if strings.Contains(buf.String(), "falling back") != (!canceled && fallback) {
+					t.Fatalf("misleading fallback diagnostic: %s", buf.String())
+				}
+				if opts.ProbeOptions.Progress.renderedLines != 0 {
+					t.Fatal("probe left a live progress line")
+				}
+			})
+		}
+	}
+}
+
 func TestFileSHA512MatchesIdenticalContent(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a.mkv")

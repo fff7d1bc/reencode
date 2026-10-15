@@ -572,6 +572,11 @@ func chooseCRF(ctx context.Context, opts EncodeOptions, info MediaInfo) (float64
 	if session != nil {
 		defer session.Close()
 	}
+	// Cancellation stops the operation, it is not a failed quality search.
+	// Match group mode before announcing or selecting a fallback CRF.
+	if ctx.Err() != nil {
+		return 0, nil, ctx.Err()
+	}
 	if err == nil && result.Success {
 		return result.CRF, &result, nil
 	}
