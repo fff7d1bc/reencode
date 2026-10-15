@@ -54,9 +54,6 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 	if err != nil {
 		return FFMpegResult{}, err
 	}
-	if err := cmd.Start(); err != nil {
-		return FFMpegResult{}, fmt.Errorf("%s: start ffmpeg: %w", run.Role, err)
-	}
 	if run.Progress != nil {
 		run.Progress.Start(ProgressState{
 			Role:           run.Role,
@@ -69,6 +66,9 @@ func runFFmpeg(ctx context.Context, run FFMpegRun) (FFMpegResult, error) {
 			ExpectedFrames: run.ExpectedFrames,
 		})
 		defer run.Progress.Finish()
+	}
+	if err := cmd.Start(); err != nil {
+		return FFMpegResult{}, fmt.Errorf("%s: start ffmpeg: %w", run.Role, err)
 	}
 
 	var mu sync.Mutex

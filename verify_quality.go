@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 )
 
@@ -58,23 +57,29 @@ func verificationTarget(opts ProbeOptions, probe *ProbeResult) float64 {
 }
 
 func verifyFinalQuality(ctx context.Context, opts ProbeOptions, source MediaInfo, outputPath string, probe *ProbeResult) error {
+	progress := opts.progressDisplay()
+	defer progress.StartActivity("preparing final quality check", source.Path, 0)()
 	var err error
 	opts.captureBackend, err = checkCaptureSupport(ctx, opts)
 	if err != nil {
 		return err
 	}
+	progress.Phase("reading output metadata")
 	output, err := probeMediaContext(ctx, outputPath)
 	if err != nil {
 		return err
 	}
+	progress.Phase("checking source video start")
 	sourceStart, err := firstVideoTime(ctx, source)
 	if err != nil {
 		return err
 	}
+	progress.Phase("checking output video start")
 	outputStart, err := firstVideoTime(ctx, output)
 	if err != nil {
 		return err
 	}
+	progress.Phase("preparing final quality check")
 	session, err := newProbeSession(opts, source)
 	if err != nil {
 		return err
@@ -100,9 +105,9 @@ func verifyFinalQuality(ctx context.Context, opts ProbeOptions, source MediaInfo
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "%s: final sampled quality passed, avg VMAF %.2f, min %.2f\n", displayPath(source.Path), attempt.Score, attempt.WorstSampleScore)
+	progress.Printf("%s: final sampled quality passed, avg VMAF %.2f, min %.2f\n", displayPath(source.Path), attempt.Score, attempt.WorstSampleScore)
 	if opts.Verbose {
-		printSampleDiagnostics(attempt.Samples)
+		printSampleDiagnostics(attempt.Samples, progress)
 	}
 	return nil
 }

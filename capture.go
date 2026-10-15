@@ -175,7 +175,7 @@ func selectCaptureBackend(ctx context.Context, opts ProbeOptions) (string, error
 	captureSupport.backend = capturePolicy
 	if err != nil {
 		captureSupport.backend = inspectionPolicy
-		fmt.Fprintf(os.Stderr, "decoded timestamp capture unavailable, using bounded ffprobe inspection: %v\n", err)
+		opts.progressDisplay().Printf("decoded timestamp capture unavailable, using bounded ffprobe inspection: %v\n", err)
 	}
 	captureSupport.checked = true
 	return captureSupport.backend, nil

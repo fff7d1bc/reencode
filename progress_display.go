@@ -36,6 +36,13 @@ type ProgressDisplay struct {
 	lastFlush     time.Time
 	renderedLines int
 	state         ProgressState
+	activities    []*progressActivity
+	activity      *progressActivity
+}
+
+type progressActivity struct {
+	state   ProgressState
+	started time.Time
 }
 
 func NewProgressDisplay(disabled bool) *ProgressDisplay {
@@ -45,16 +52,22 @@ func NewProgressDisplay(disabled bool) *ProgressDisplay {
 	return &ProgressDisplay{out: os.Stderr, live: true}
 }
 
-// StartActivity owns an elapsed-time display for work without ffmpeg progress.
-// Its returned stop function must run before starting another display phase.
-// Joining the ticker prevents late redraws after errors, cancellation, or the
-// next sample encode. Elapsed time is activity, not measured media progress.
+// StartActivity keeps a status visible until its owner returns. Nested activities
+// and ffmpeg progress temporarily replace it, then restore it without a blank
+// interval. Only the visible activity's ticker may redraw. Stop joins its ticker
+// before releasing ownership, including on errors and cancellation.
 func (p *ProgressDisplay) StartActivity(role, file string, total int) func() {
 	if p == nil {
 		return func() {}
 	}
-	started := time.Now()
-	p.Start(ProgressState{Activity: true, Role: role, File: file, ScopeTotal: total})
+	activity := &progressActivity{
+		state:   ProgressState{Activity: true, Role: role, File: file, ScopeTotal: total},
+		started: time.Now(),
+	}
+	p.mu.Lock()
+	p.activities = append(p.activities, activity)
+	p.restoreActivityLocked()
+	p.mu.Unlock()
 	stop, done := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
@@ -66,16 +79,65 @@ func (p *ProgressDisplay) StartActivity(role, file string, total int) func() {
 				return
 			case <-ticker.C:
 				p.mu.Lock()
-				p.state.Elapsed = time.Since(started)
-				p.flushLocked(false)
+				if p.activity == activity {
+					p.state.Elapsed = time.Since(activity.started)
+					p.flushLocked(false)
+				}
 				p.mu.Unlock()
 			}
 		}
 	}()
 	var once sync.Once
 	return func() {
-		once.Do(func() { close(stop); <-done; p.Finish() })
+		once.Do(func() {
+			close(stop)
+			<-done
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			for i, candidate := range p.activities {
+				if candidate == activity {
+					copy(p.activities[i:], p.activities[i+1:])
+					last := len(p.activities) - 1
+					p.activities[last] = nil
+					p.activities = p.activities[:last]
+					break
+				}
+			}
+			if p.activity == activity {
+				p.restoreActivityLocked()
+			}
+		})
 	}
+}
+
+// Phase names unmeasured work in the current scope. It never advances media
+// progress or the frame-based stall detector.
+func (p *ProgressDisplay) Phase(role string) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.activities) == 0 {
+		return
+	}
+	activity := p.activities[len(p.activities)-1]
+	activity.state.Role = role
+	activity.started = time.Now()
+	p.restoreActivityLocked()
+}
+
+func (p *ProgressDisplay) restoreActivityLocked() {
+	if len(p.activities) == 0 {
+		p.activity = nil
+		p.clearLocked()
+		p.renderedLines = 0
+		return
+	}
+	p.activity = p.activities[len(p.activities)-1]
+	p.state = p.activity.state
+	p.state.Elapsed = time.Since(p.activity.started)
+	p.flushLocked(true)
 }
 
 func (p *ProgressDisplay) Checked(skipped bool) {
@@ -88,6 +150,9 @@ func (p *ProgressDisplay) Checked(skipped bool) {
 	if skipped {
 		p.state.Skipped++
 	}
+	if p.activity != nil {
+		p.activity.state = p.state
+	}
 	p.flushLocked(p.state.ScopeDone == p.state.ScopeTotal)
 }
 
@@ -97,6 +162,7 @@ func (p *ProgressDisplay) Start(state ProgressState) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.activity = nil
 	p.state = state
 	p.flushLocked(true)
 }
@@ -119,12 +185,30 @@ func (p *ProgressDisplay) Finish() {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.clearLocked()
-	p.renderedLines = 0
+	p.restoreActivityLocked()
+}
+
+// Printf serializes permanent diagnostics with the live status line. All output
+// inside an activity scope must use this path so a ticker cannot erase it.
+func (p *ProgressDisplay) Printf(format string, args ...any) {
+	line := strings.TrimSuffix(fmt.Sprintf(format, args...), "\n")
+	if p == nil {
+		fmt.Fprintln(os.Stderr, line)
+		return
+	}
+	p.PrintLine(line)
 }
 
 func (p *ProgressDisplay) PrintLine(line string) {
 	if p == nil {
+		return
+	}
+	p.PrintTo(p.out, line)
+}
+
+func (p *ProgressDisplay) PrintTo(out io.Writer, line string) {
+	if p == nil {
+		fmt.Fprintln(out, line)
 		return
 	}
 	p.mu.Lock()
@@ -136,8 +220,11 @@ func (p *ProgressDisplay) PrintLine(line string) {
 	// leave stale suffixes such as the tail of a previous CRF label or size.
 	p.clearLocked()
 	p.renderedLines = 0
-	fmt.Fprintln(p.out, line)
+	fmt.Fprintln(out, line)
 	p.lastFlush = time.Time{}
+	if len(p.activities) > 0 {
+		p.flushLocked(true)
+	}
 }
 
 func (p *ProgressDisplay) flushLocked(force bool) {

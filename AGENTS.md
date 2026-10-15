@@ -174,9 +174,12 @@ Add focused tests when changing:
 - Cover skip-before-decode ordering, metadata reuse, shared thread limits,
   cancellation while waiting for a decoder slot, and threaded timestamp parity.
 - Long inspection and batch-check phases need visible status. Distinguish
-  elapsed-time activity from measured progress and stall detection. Stop and
-  join display tickers before the next phase, including on error or Ctrl-C.
-  Keep JSON and `--no-progress` runs free of interactive output.
+  elapsed-time activity from measured progress and stall detection. File-level
+  activity scopes survive subprocess handoffs. Only the visible scope may
+  redraw, and each scope must stop and join its ticker on return, including on
+  error or Ctrl-C. Route diagnostics inside scopes through the progress display
+  so background redraws cannot erase permanent output. Keep JSON and
+  `--no-progress` runs free of interactive output.
 - Timing reports describe the current invocation, never historical cached work.
   Count shared preparation once in comparisons and exclude eligibility queue
   waits from per-file active time. Command wall time includes all batch waiting.

@@ -424,11 +424,14 @@ remain untouched.
 
 ## Progress, Cache, And Safety
 
-Interactive terminals show checked/skipped counts during input classification,
-elapsed-time status during source and encoded-sample timestamp inspection, and
-progress during runtime checks, sample encode, VMAF scoring, and final encode.
-Inspection elapsed time is not a percentage or a stall-detection heartbeat.
-These displays are disabled by `--no-progress` and in JSON mode.
+Interactive terminals show checked/skipped counts during input classification
+and keep a status line visible throughout each file's work. The line switches
+between measured progress during sample encode, VMAF scoring, and final encode,
+and elapsed-time activity during preparation, cache work, ffprobe inspection,
+and result validation. Completed results and diagnostics appear above it.
+Elapsed activity is not a percentage or a stall-detection heartbeat. The line
+is cleared when work finishes or fails, including on Ctrl-C. These displays are
+disabled by `--no-progress`, in JSON mode, and when stderr is not a terminal.
 Fresh searches announce their sample count, sampled duration, and inspection
 thread budget. JSON includes current-run preparation, timestamp inspection,
 runtime checks, cache, encode, score, and active-total timings. `--verbose`

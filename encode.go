@@ -122,6 +122,7 @@ func encodeFFmpegRequirements(opts EncodeOptions) ffmpegRequirements {
 }
 
 func encodeOne(ctx context.Context, opts EncodeOptions, input eligibleInput) error {
+	defer opts.ProbeOptions.progressDisplay().StartActivity("preparing encode", input.File, 0)()
 	defer input.Info.facts.releaseWindows()
 	if err := verifySourceSnapshot(input.File, input.Source); err != nil {
 		return err
@@ -142,12 +143,14 @@ func encodeOne(ctx context.Context, opts EncodeOptions, input eligibleInput) err
 }
 
 func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInput, crf float64, probe *ProbeResult) (retErr error) {
+	progress := opts.ProbeOptions.progressDisplay()
+	defer progress.StartActivity("preparing final encode", input.File, 0)()
 	defer input.Info.facts.releaseWindows()
 	if err := validateSourceVideo(input.Info); err != nil {
 		return err
 	}
 	if opts.Verbose && probe != nil {
-		printSampleDiagnostics(probe.Samples)
+		printSampleDiagnostics(probe.Samples, progress)
 	}
 	file := input.File
 	if err := verifySourceSnapshot(file, input.Source); err != nil {
@@ -185,7 +188,7 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 	video := buildVideoArgs(info, opts.ProbeOptions.Preset, crf, opts.ProbeOptions.Tune)
 	mapArgs, audioArgs, dropped := streamArgs(info, opts)
 	for _, stream := range dropped {
-		fmt.Fprintf(os.Stderr, "%s: dropping unsupported stream %d (%s)\n", displayPath(file), stream.Index, stream.Type)
+		progress.Printf("%s: dropping unsupported stream %d (%s)\n", displayPath(file), stream.Index, stream.Type)
 	}
 	args := []string{"-y", "-xerror", "-i", file}
 	args = append(args, mapArgs...)
@@ -196,7 +199,7 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 	args = append(args, tmp)
 
 	if opts.DryRun {
-		fmt.Printf("ffmpeg %s\n", strings.Join(args, " "))
+		progress.PrintTo(os.Stdout, fmt.Sprintf("ffmpeg %s", strings.Join(args, " ")))
 		return nil
 	}
 	removeTemp := true
@@ -213,7 +216,7 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 		StallTimeout:     opts.ProbeOptions.StallTimeout,
 		ExpectedDuration: info.Duration,
 		ExpectedFrames:   info.TotalFrames,
-		Progress:         opts.ProbeOptions.Progress,
+		Progress:         progress,
 	}); err != nil {
 		return err
 	}
@@ -228,6 +231,7 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	progress.Phase("publishing output")
 	if err := verifySourceSnapshot(file, input.Source); err != nil {
 		return err
 	}
@@ -289,9 +293,9 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 		}
 	}
 	sourceQuarantined = false
-	fmt.Fprintln(os.Stderr, formatEncodeSuccessLine(file, output, crf, sourceSize, outputSize))
+	progress.Printf("%s\n", formatEncodeSuccessLine(file, output, crf, sourceSize, outputSize))
 	if opts.KeepSource {
-		fmt.Fprintf(os.Stderr, "%s: source retained\n", displayPath(file))
+		progress.Printf("%s: source retained\n", displayPath(file))
 	}
 	return nil
 }
@@ -573,7 +577,7 @@ func chooseCRF(ctx context.Context, opts EncodeOptions, info MediaInfo) (float64
 	}
 	persistProbeSessionCache(ctx, opts.ProbeOptions, cache, session, result)
 	if opts.FallbackCRFSet {
-		fmt.Fprintf(os.Stderr, "%s: probe failed, falling back to CRF %s: %v\n", displayPath(info.Path), terseFloat(opts.FallbackCRF), err)
+		opts.ProbeOptions.progressDisplay().Printf("%s: probe failed, falling back to CRF %s: %v\n", displayPath(info.Path), terseFloat(opts.FallbackCRF), err)
 		return opts.FallbackCRF, nil, nil
 	}
 	return 0, nil, fmt.Errorf("probe failed and --fallback-crf is not set: %w", err)
@@ -609,6 +613,7 @@ func streamArgs(info MediaInfo, opts EncodeOptions) ([]string, []string, []Strea
 }
 
 func validateOutput(ctx context.Context, path string, source MediaInfo, opts EncodeOptions) error {
+	defer opts.ProbeOptions.progressDisplay().StartActivity("validating output", source.Path, 0)()
 	info, err := inspectFinalMedia(ctx, path)
 	if err != nil {
 		return fmt.Errorf("validate output: %w", err)
@@ -682,7 +687,7 @@ func decodeVideoFrameCount(ctx context.Context, path string, info MediaInfo, opt
 		Args: []string{"-xerror", "-noautorotate", "-i", path,
 			"-map", fmt.Sprintf("0:%d", info.VideoIndex),
 			"-fps_mode", "passthrough", "-f", "null", "-"},
-		StallTimeout: opts.StallTimeout, Progress: opts.Progress,
+		StallTimeout: opts.StallTimeout, Progress: opts.progressDisplay(),
 		ExpectedDuration: info.Duration, ExpectedFrames: info.TotalFrames,
 	})
 	if err != nil {

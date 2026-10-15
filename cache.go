@@ -5,7 +5,6 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -339,5 +338,5 @@ func warnCache(opts ProbeOptions, format string, args ...any) {
 	if !opts.Verbose {
 		return
 	}
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	opts.progressDisplay().Printf(format+"\n", args...)
 }

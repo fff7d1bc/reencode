@@ -116,6 +116,8 @@ func (s *crfSearch) initMeasurements() {
 var measureProbeWindow = (*crfSearch).measureFreshWindow
 
 func (s *crfSearch) measureWindow(ctx context.Context, video VideoArgs, sample SampleFile, number int, progress probeProgress) (SampleFile, SampleDiagnostics, int64, error) {
+	status := s.options.progressDisplay()
+	defer status.StartActivity("checking sample cache", s.info.Path, 0)()
 	if err := ctx.Err(); err != nil {
 		return sample, SampleDiagnostics{}, 0, err
 	}
@@ -136,7 +138,7 @@ func (s *crfSearch) measureWindow(ctx context.Context, video VideoArgs, sample S
 	if !ok && path != "" && !s.options.RefreshCache {
 		m, ok, err = loadMeasurement(path, key, sample, qFromCRF(video.CRF))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: window cache read failed, measuring again: %v\n", displayPath(s.info.Path), err)
+			status.Printf("%s: window cache read failed, measuring again: %v\n", displayPath(s.info.Path), err)
 		}
 	}
 	s.timing.CacheSeconds += time.Since(started).Seconds()
@@ -152,10 +154,12 @@ func (s *crfSearch) measureWindow(ctx context.Context, video VideoArgs, sample S
 		prepared, err := s.applyTimeline(sample, m.Timeline)
 		return prepared, m.Diagnostic, m.EncodedBytes, err
 	}
+	status.Phase("preparing sample")
 	m, err = measureProbeWindow(s, ctx, video, sample, number, progress)
 	if err != nil {
 		return sample, SampleDiagnostics{}, 0, err
 	}
+	status.Phase("saving sample result")
 	if err := s.info.facts.check(s.info.Path); err != nil {
 		return sample, SampleDiagnostics{}, 0, err
 	}
@@ -172,7 +176,7 @@ func (s *crfSearch) measureWindow(ctx context.Context, video VideoArgs, sample S
 	if path != "" {
 		started = time.Now()
 		if err := writeCacheJSON(path, m); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: window cache write failed: %v\n", displayPath(s.info.Path), err)
+			status.Printf("%s: window cache write failed: %v\n", displayPath(s.info.Path), err)
 		}
 		s.timing.CacheSeconds += time.Since(started).Seconds()
 	}

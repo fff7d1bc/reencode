@@ -56,6 +56,7 @@ func (s *crfSearch) scoreCapturedWindow(ctx context.Context, sample SampleFile, 
 	if err != nil {
 		return SampleDiagnostics{}, err
 	}
+	s.options.progressDisplay().Phase("validating results")
 	frames, err := loadFrameCapture(capturePath)
 	if err != nil {
 		return SampleDiagnostics{}, fmt.Errorf("invalid decoded timestamp capture: %w", err)

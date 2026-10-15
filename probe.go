@@ -182,7 +182,7 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 		}
 		printProbeHuman(result)
 		if opts.Verbose {
-			printSampleDiagnostics(result.Samples)
+			printSampleDiagnostics(result.Samples, opts.progressDisplay())
 		}
 	}
 	return exitCode
@@ -219,6 +219,7 @@ func ProbeFile(ctx context.Context, opts ProbeOptions, file string) (ProbeResult
 }
 
 func probeInspectedFile(ctx context.Context, opts ProbeOptions, info MediaInfo, source sourceSnapshot) (ProbeResult, error) {
+	defer opts.progressDisplay().StartActivity("preparing probe", info.Path, 0)()
 	defer info.facts.releaseWindows()
 	if err := verifySourceSnapshot(info.Path, source); err != nil {
 		return ProbeResult{File: info.Path, TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF}, err
@@ -240,6 +241,7 @@ func probeFileSession(ctx context.Context, opts ProbeOptions, file string) (Prob
 }
 
 func probeFile(ctx context.Context, opts ProbeOptions, file string, keepSession bool) (ProbeResult, *probeSession, *probeCacheHandle, error) {
+	defer opts.progressDisplay().StartActivity("checking input", file, 0)()
 	info, err := probeInputMediaContextWithPolicy(ctx, file, opts.ForceVideo)
 	if err != nil {
 		var result ProbeResult
@@ -252,6 +254,8 @@ func probeFile(ctx context.Context, opts ProbeOptions, file string, keepSession 
 }
 
 func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keepSession bool) (result ProbeResult, session *probeSession, cache *probeCacheHandle, retErr error) {
+	progress := opts.progressDisplay()
+	defer progress.StartActivity("checking scoring tools", info.Path, 0)()
 	if !info.framesValidated {
 		return ProbeResult{File: info.Path}, nil, nil, fmt.Errorf("decoded input validation has not completed")
 	}
@@ -264,10 +268,10 @@ func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keep
 		result.Timing.CacheSeconds += cacheSeconds
 		result.Timing.TotalSeconds = time.Since(started).Seconds() + info.preparation.TotalSeconds
 		if opts.Verbose && !opts.JSON {
-			fmt.Fprintf(os.Stderr, "%s: %s\n", displayPath(info.Path), result.Timing.summary())
+			progress.Printf("%s: %s\n", displayPath(info.Path), result.Timing.summary())
 		}
 		if !opts.JSON && result.ReusedMeasurements > 0 {
-			fmt.Fprintf(os.Stderr, "%s: reused %d validated window measurements\n", displayPath(info.Path), result.ReusedMeasurements)
+			progress.Printf("%s: reused %d validated window measurements\n", displayPath(info.Path), result.ReusedMeasurements)
 		}
 	}()
 	file := info.Path
@@ -282,6 +286,7 @@ func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keep
 		return ProbeResult{File: file, Tune: opts.Tune, Model: resolveVMAFModel(opts, info), TargetVMAF: opts.TargetVMAF, FloorVMAF: opts.FloorVMAF}, nil, nil, err
 	}
 	cacheStart := time.Now()
+	progress.Phase("checking probe cache")
 	cache, err = prepareProbeCache(ctx, opts, file, info)
 	if err != nil {
 		warnCache(opts, "probe cache disabled: %v", err)
@@ -305,6 +310,7 @@ func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keep
 		}
 	}
 	cacheSeconds = time.Since(cacheStart).Seconds()
+	progress.Phase("preparing probe")
 	printProbePlan(opts, info)
 
 	session, err = newProbeSession(opts, info)
@@ -317,11 +323,13 @@ func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keep
 	}
 
 	session.search.cache = cache
+	progress.Phase("searching CRF")
 	result, err = session.Run(ctx)
 	if err != nil {
 		return result, session, cache, err
 	}
 	if cache != nil && result.Success {
+		progress.Phase("saving probe result")
 		cacheStart = time.Now()
 		if err := storeProbeCache(cache, result); err != nil {
 			warnCache(opts, "probe cache write failed: %v", err)
@@ -433,6 +441,7 @@ func (s *probeSession) Run(ctx context.Context) (ProbeResult, error) {
 }
 
 func (s *probeSession) EvaluateCRF(ctx context.Context, crf float64) (ProbeAttempt, error) {
+	defer s.search.options.progressDisplay().StartActivity("checking group CRF", s.search.info.Path, 0)()
 	q := qFromCRF(crf)
 	attempt, err := s.search.evaluate(ctx, q)
 	if err != nil {
@@ -780,7 +789,8 @@ func partialFloorFailure(scores []float64, floor float64) (bool, string) {
 }
 
 func (s *crfSearch) reportAttempt(q int, attempt ProbeAttempt, target float64) {
-	if s.options.Progress == nil {
+	progress := s.options.progressDisplay()
+	if progress == nil {
 		return
 	}
 	if s.reportedAttempts == nil {
@@ -793,15 +803,16 @@ func (s *crfSearch) reportAttempt(q int, attempt ProbeAttempt, target float64) {
 	// selection can all reuse a CRF without re-encoding it. Report each CRF once
 	// so the selected line is never the first visible result for that CRF.
 	if !s.reportedAttemptHeader {
-		s.options.Progress.PrintLine(formatProbeAttemptHeader())
+		progress.PrintLine(formatProbeAttemptHeader())
 		s.reportedAttemptHeader = true
 	}
-	s.options.Progress.PrintLine(formatProbeAttemptLine(attempt, target, s.options))
+	progress.PrintLine(formatProbeAttemptLine(attempt, target, s.options))
 	s.reportedAttempts[q] = true
 }
 
 func (s *crfSearch) reportSelectedAttempt(attempt ProbeAttempt) {
-	if s.options.Progress == nil {
+	progress := s.options.progressDisplay()
+	if progress == nil {
 		return
 	}
 	q := qFromCRF(attempt.CRF)
@@ -810,11 +821,12 @@ func (s *crfSearch) reportSelectedAttempt(attempt ProbeAttempt) {
 		target = s.options.TargetVMAF
 	}
 	s.reportAttempt(q, attempt, target)
-	s.options.Progress.PrintLine(formatSelectedProbeAttemptLine(attempt))
+	progress.PrintLine(formatSelectedProbeAttemptLine(attempt))
 }
 
 func (s *crfSearch) reportTargetStop(target float64, attempt ProbeAttempt) {
-	if s.options.Progress == nil {
+	progress := s.options.progressDisplay()
+	if progress == nil {
 		return
 	}
 	q := qFromCRF(attempt.CRF)
@@ -824,7 +836,7 @@ func (s *crfSearch) reportTargetStop(target float64, attempt ProbeAttempt) {
 	if s.reportedTargetStops[q] {
 		return
 	}
-	s.options.Progress.PrintLine(formatTargetStopLine(target, attempt, s.options.MaxEncodedPercent))
+	progress.PrintLine(formatTargetStopLine(target, attempt, s.options.MaxEncodedPercent))
 	s.reportedTargetStops[q] = true
 }
 
@@ -1100,7 +1112,7 @@ func (s *crfSearch) encodeSample(ctx context.Context, video VideoArgs, sample Sa
 		StallTimeout:     s.options.StallTimeout,
 		ExpectedDuration: sample.Duration,
 		ExpectedFrames:   sample.Frames,
-		Progress:         s.options.Progress,
+		Progress:         s.options.progressDisplay(),
 	}); err != nil {
 		return "", 0, err
 	}
@@ -1136,6 +1148,7 @@ func (s *crfSearch) scoreSample(ctx context.Context, sample SampleFile, distorte
 }
 
 func (s *crfSearch) scoreWindow(ctx context.Context, sample SampleFile, distorted string, final *finalScoreWindow, progress probeProgress) (SampleDiagnostics, error) {
+	defer s.options.progressDisplay().StartActivity("preparing quality check", s.info.Path, 0)()
 	model := resolveVMAFModel(s.options, s.info)
 	if s.options.runtime.LibVMAF == "" {
 		versions, err := checkScoringRuntime(ctx, s.options, model)
@@ -1200,7 +1213,7 @@ func (s *crfSearch) scoreWindow(ctx context.Context, sample SampleFile, distorte
 		}
 	}
 	started := time.Now()
-	report, err := runVMAFReport(ctx, FFMpegRun{
+	res, err := executeVMAF(ctx, FFMpegRun{
 		Role:             role,
 		File:             s.info.Path,
 		ScopeLabel:       progress.Label,
@@ -1210,8 +1223,13 @@ func (s *crfSearch) scoreWindow(ctx context.Context, sample SampleFile, distorte
 		StallTimeout:     s.options.StallTimeout,
 		ExpectedDuration: sample.Duration,
 		ExpectedFrames:   sample.Frames,
-		Progress:         s.options.Progress,
-	}, logPath, int(sample.Frames))
+		Progress:         s.options.progressDisplay(),
+	})
+	var report vmafReport
+	if err == nil {
+		s.options.progressDisplay().Phase("validating results")
+		report, err = completedVMAFReport(res, logPath, int(sample.Frames))
+	}
 	s.timing.ScoreSeconds += time.Since(started).Seconds()
 	if err != nil {
 		return SampleDiagnostics{}, err
@@ -1219,9 +1237,9 @@ func (s *crfSearch) scoreWindow(ctx context.Context, sample SampleFile, distorte
 	return diagnoseVMAF(report, *sample.Timeline), nil
 }
 
-func printSampleDiagnostics(samples []SampleDiagnostics) {
+func printSampleDiagnostics(samples []SampleDiagnostics, progress *ProgressDisplay) {
 	for _, sample := range samples {
-		fmt.Fprintf(os.Stderr, "  sample %.3fs (%0.3fs, %d frames): VMAF %.2f, frame p05 %.2f, worst %.3fs %.2f at %.3fs\n", sample.StartSeconds, sample.DurationSeconds, sample.Frames, sample.Score, sample.FrameP05, sample.WorstSecondDuration, sample.WorstSecondScore, sample.WorstSecondStart)
+		progress.Printf("  sample %.3fs (%0.3fs, %d frames): VMAF %.2f, frame p05 %.2f, worst %.3fs %.2f at %.3fs\n", sample.StartSeconds, sample.DurationSeconds, sample.Frames, sample.Score, sample.FrameP05, sample.WorstSecondDuration, sample.WorstSecondScore, sample.WorstSecondStart)
 	}
 }
 

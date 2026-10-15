@@ -64,6 +64,7 @@ func compareList(value, name string, allowed []string) ([]string, error) {
 var compareProbe = probeMediaFile
 
 func compareInput(ctx context.Context, opts CompareOptions, info MediaInfo) CompareResult {
+	defer opts.ProbeOptions.progressDisplay().StartActivity("comparing quality settings", info.Path, 0)()
 	defer info.facts.releaseWindows()
 	result := CompareResult{File: info.Path, SamplePlan: planSamples(info, opts.ProbeOptions.Samples, opts.ProbeOptions.SampleDuration)}
 	var err error

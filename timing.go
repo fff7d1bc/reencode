@@ -37,6 +37,6 @@ func printProbePlan(opts ProbeOptions, info MediaInfo) {
 		return
 	}
 	plan := planSamples(info, opts.Samples, opts.SampleDuration)
-	fmt.Fprintf(os.Stderr, "%s: probe plan %d windows, %.1fs sampled, %d inspection decoder threads\n",
+	opts.progressDisplay().Printf("%s: probe plan %d windows, %.1fs sampled, %d inspection decoder threads\n",
 		displayPath(info.Path), plan.Count, float64(plan.Count)*plan.SampleSeconds, newInspectionBudget(runtime.GOMAXPROCS(0), 1).threads)
 }
