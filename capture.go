@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -159,6 +161,59 @@ var captureSupport struct {
 var checkCaptureSupport = selectCaptureBackend
 var checkFrameCapture = smokeFrameCapture
 
+// Only an identified missing capture feature permits the compatibility path.
+// Setup faults are command-wide failures, not failed quality searches eligible
+// for --fallback-crf. Keep their cause intact across command-level wrapping.
+type captureUnsupportedError struct{ reason string }
+
+func (e *captureUnsupportedError) Error() string { return e.reason }
+
+type captureSetupError struct{ err error }
+
+func (e *captureSetupError) Error() string { return "timestamp capture setup failed: " + e.err.Error() }
+func (e *captureSetupError) Unwrap() error { return e.err }
+
+func isCaptureSetupError(err error) bool {
+	var setup *captureSetupError
+	return errors.As(err, &setup)
+}
+
+// An exit accompanied by a pipe/read failure is not reliable capability
+// evidence. Neither a failed start nor a signal has an ordinary exit code.
+func ordinaryExitOnly(err error) bool {
+	switch e := err.(type) {
+	case *exec.ExitError:
+		return e.ExitCode() > 0
+	case interface{ Unwrap() []error }:
+		causes := e.Unwrap()
+		return len(causes) == 1 && ordinaryExitOnly(causes[0])
+	case interface{ Unwrap() error }:
+		return ordinaryExitOnly(e.Unwrap())
+	default:
+		return false
+	}
+}
+
+func unsupportedCaptureFeature(err error, stderr string) error {
+	if !ordinaryExitOnly(err) {
+		return nil
+	}
+	// Do not match generic "Invalid argument" or unrelated encoder/filter
+	// failures. Unknown diagnostics must remain visible as setup errors.
+	for _, diagnostic := range []string{
+		"unknown encoder 'wrapped_avframe'",
+		"encoder (codec wrapped_avframe) not found",
+		"requested output format 'framecrc' is not known",
+		"unknown format 'framecrc'",
+		"invalid time base: filter",
+	} {
+		if strings.Contains(strings.ToLower(stderr), diagnostic) {
+			return &captureUnsupportedError{reason: diagnostic}
+		}
+	}
+	return nil
+}
+
 func selectCaptureBackend(ctx context.Context, opts ProbeOptions) (string, error) {
 	captureSupport.Lock()
 	defer captureSupport.Unlock()
@@ -172,11 +227,16 @@ func selectCaptureBackend(ctx context.Context, opts ProbeOptions) (string, error
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
-	captureSupport.backend = capturePolicy
+	backend := capturePolicy
 	if err != nil {
-		captureSupport.backend = inspectionPolicy
+		var unsupported *captureUnsupportedError
+		if !errors.As(err, &unsupported) {
+			return "", &captureSetupError{err: err}
+		}
+		backend = inspectionPolicy
 		opts.progressDisplay().Printf("decoded timestamp capture unavailable, using bounded ffprobe inspection: %v\n", err)
 	}
+	captureSupport.backend = backend
 	captureSupport.checked = true
 	return captureSupport.backend, nil
 }
@@ -202,7 +262,13 @@ func smokeFrameCapture(ctx context.Context, opts ProbeOptions) error {
 		"-f", "lavfi", "-i", "testsrc2=size=64x64:rate=24:duration=0.083333",
 		"-filter_complex", filter, "-map", "[quality]", "-fps_mode", "passthrough", "-f", "null", nullOutputPath()}
 	args = append(args, captureOutputArgs(path)...)
-	if _, err := runFFmpeg(ctx, FFMpegRun{Role: "timestamp capture check", Args: args, Progress: opts.progressDisplay()}); err != nil {
+	if run, err := runFFmpeg(ctx, FFMpegRun{Role: "timestamp capture check", Args: args, Progress: opts.progressDisplay()}); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if unsupported := unsupportedCaptureFeature(err, run.Stderr); unsupported != nil {
+			return unsupported
+		}
 		return err
 	}
 	frames, err := loadFrameCapture(path)

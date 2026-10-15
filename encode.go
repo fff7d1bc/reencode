@@ -103,6 +103,9 @@ func runEncodeCommand(ctx context.Context, opts EncodeOptions, files []string) i
 			}
 			exitCode = 1
 			fmt.Fprintf(os.Stderr, "%s: %v\n", displayPath(file), err)
+			if isCaptureSetupError(err) {
+				return 1
+			}
 		}
 	}
 	return exitCode
@@ -163,6 +166,13 @@ func encodeOneWithCRF(ctx context.Context, opts EncodeOptions, input eligibleInp
 	}
 	info := input.Info
 	if opts.VerifyQuality && !opts.DryRun {
+		opts.ProbeOptions.captureBackend, err = checkCaptureSupport(ctx, opts.ProbeOptions)
+		if err != nil {
+			return err
+		}
+		if opts.Verbose {
+			progress.Printf("%s: timing policy %s\n", displayPath(file), opts.ProbeOptions.captureBackend)
+		}
 		versions, err := checkScoringRuntime(ctx, opts.ProbeOptions, resolveVMAFModel(opts.ProbeOptions, info))
 		if err != nil {
 			return err
@@ -513,6 +523,9 @@ func groupFallbackOrError(ctx context.Context, opts EncodeOptions, inputs []grou
 	// Persist partial successful probes before falling back so a retry can
 	// reuse the expensive CRF attempts that already completed.
 	persistGroupProbeCaches(ctx, opts.ProbeOptions, inputs)
+	if isCaptureSetupError(probeErr) {
+		return probeErr
+	}
 	if opts.FallbackCRFSet {
 		fmt.Fprintf(os.Stderr, "group: probing failed, using --fallback-crf=%s for all files: %v\n", terseFloat(opts.FallbackCRF), probeErr)
 		return encodeGroupWithCRF(ctx, opts, inputs, opts.FallbackCRF, false)
@@ -546,6 +559,7 @@ func groupProbeMetadata(input groupInput, opts ProbeOptions, crf float64) *Probe
 		return nil
 	}
 	return &ProbeResult{
+		TimingPolicy:     input.Session.result.TimingPolicy,
 		Tune:             opts.Tune,
 		Model:            input.Session.result.Model,
 		Runtime:          input.Session.result.Runtime,
@@ -581,6 +595,9 @@ func chooseCRF(ctx context.Context, opts EncodeOptions, info MediaInfo) (float64
 		return result.CRF, &result, nil
 	}
 	persistProbeSessionCache(ctx, opts.ProbeOptions, cache, session, result)
+	if isCaptureSetupError(err) {
+		return 0, nil, err
+	}
 	if opts.FallbackCRFSet {
 		opts.ProbeOptions.progressDisplay().Printf("%s: probe failed, falling back to CRF %s: %v\n", displayPath(info.Path), terseFloat(opts.FallbackCRF), err)
 		return opts.FallbackCRF, nil, nil

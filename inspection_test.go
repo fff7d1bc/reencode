@@ -164,6 +164,7 @@ func TestEligibilitySkipsBeforeFrameDecoding(t *testing.T) {
 }
 
 func TestInspectedMetadataReuseRejectsChangedSources(t *testing.T) {
+	stubCaptureSupport(t)
 	oldMeta, oldHDR, oldRuntime := inspectEligibilityMetadata, inspectEligibilityHDR, checkScoringRuntime
 	t.Cleanup(func() {
 		inspectEligibilityMetadata, inspectEligibilityHDR, checkScoringRuntime = oldMeta, oldHDR, oldRuntime

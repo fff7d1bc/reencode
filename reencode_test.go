@@ -890,6 +890,7 @@ func TestGroupFallbackDoesNotEncodeAfterCancellation(t *testing.T) {
 }
 
 func TestSingleFileFallbackRespectsCancellation(t *testing.T) {
+	stubCaptureSupport(t)
 	old := checkScoringRuntime
 	t.Cleanup(func() { checkScoringRuntime = old })
 	for _, canceled := range []bool{false, true} {

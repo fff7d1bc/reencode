@@ -65,7 +65,10 @@ func TestCaptureCapabilityFallbackAndCancellation(t *testing.T) {
 	defer func() { checkFrameCapture, captureSupport.checked, captureSupport.backend = old, checked, backend }()
 	captureSupport.checked = false
 	calls := 0
-	checkFrameCapture = func(context.Context, ProbeOptions) error { calls++; return fmt.Errorf("unsupported encoder") }
+	checkFrameCapture = func(context.Context, ProbeOptions) error {
+		calls++
+		return &captureUnsupportedError{"unknown encoder 'wrapped_avframe'"}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := selectCaptureBackend(ctx, ProbeOptions{}); err == nil || calls != 0 {

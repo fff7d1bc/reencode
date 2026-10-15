@@ -167,8 +167,13 @@ Add focused tests when changing:
   Test unequal stream lengths so shortest-frame synchronization cannot hide
   extra frames. Sidecars are scratch state even with `--keep-temp`.
 - Select the capture backend by a runtime capability check and include its
-  versioned timing policy in cache identity. Only capability failure permits
-  compatibility inspection. Malformed captures and alignment errors are fatal.
+  versioned timing policy in cache identity. Only an explicit missing capture
+  feature on ordinary process exit permits compatibility inspection. Setup
+  errors, including filesystem faults, malformed captures, coverage mismatch,
+  and timeouts, stop the command without backend or CRF fallback. Do not cache
+  failed checks. Parent cancellation remains exit 130. Check capture before
+  model setup and before final encoding with quality verification.
+  Malformed captures and alignment errors during scoring are fatal.
   Source-window facts may be shared while their snapshot matches, but final
   quality verification must always score the actual final output.
 - Cover skip-before-decode ordering, metadata reuse, shared thread limits,

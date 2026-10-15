@@ -48,7 +48,10 @@ func TestCompareOptionsAndIsolation(t *testing.T) {
 		s.result.Success = true
 		return s.result, s, nil, nil
 	}
-	result := compareInput(context.Background(), opts, info)
+	result, err := compareInput(context.Background(), opts, info)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(calls, []string{"legacy/vq", "legacy/psnr", "v1/vq", "v1/psnr"}) || len(result.Results) != 4 || result.Results[0].Error == "" {
 		t.Fatal(calls, result)
 	}
@@ -83,7 +86,10 @@ func TestMediaIntegrationCompareReadOnlyAndCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	for pass := 0; pass < 2; pass++ {
-		result := compareInput(context.Background(), opts, info)
+		result, err := compareInput(context.Background(), opts, info)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(result.Results) != 2 {
 			t.Fatal(result)
 		}

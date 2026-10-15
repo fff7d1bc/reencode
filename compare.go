@@ -63,7 +63,7 @@ func compareList(value, name string, allowed []string) ([]string, error) {
 
 var compareProbe = probeMediaFile
 
-func compareInput(ctx context.Context, opts CompareOptions, info MediaInfo) CompareResult {
+func compareInput(ctx context.Context, opts CompareOptions, info MediaInfo) (CompareResult, error) {
 	defer opts.ProbeOptions.progressDisplay().StartActivity("comparing quality settings", info.Path, 0)()
 	defer info.facts.releaseWindows()
 	result := CompareResult{File: info.Path, SamplePlan: planSamples(info, opts.ProbeOptions.Samples, opts.ProbeOptions.SampleDuration)}
@@ -72,7 +72,7 @@ func compareInput(ctx context.Context, opts CompareOptions, info MediaInfo) Comp
 	if err != nil {
 		result.Error = err.Error()
 		result.Preparation = info.preparation
-		return result
+		return result, err
 	}
 	result.Preparation = info.preparation
 	info.preparation = ProbeTiming{}
@@ -80,7 +80,7 @@ func compareInput(ctx context.Context, opts CompareOptions, info MediaInfo) Comp
 		for _, tune := range opts.Tunes {
 			if ctx.Err() != nil {
 				result.Error = ctx.Err().Error()
-				return result
+				return result, ctx.Err()
 			}
 			probeOpts := opts.ProbeOptions
 			probeOpts.VMAFProfile, probeOpts.Tune = profile, tune
@@ -94,9 +94,12 @@ func compareInput(ctx context.Context, opts CompareOptions, info MediaInfo) Comp
 				row.Error = err.Error()
 			}
 			result.Results = append(result.Results, row)
+			if isCaptureSetupError(err) {
+				return result, err
+			}
 		}
 	}
-	return result
+	return result, nil
 }
 
 func runCompareCommand(ctx context.Context, opts CompareOptions, files []string) int {
@@ -119,6 +122,7 @@ func runCompareCommand(ctx context.Context, opts CompareOptions, files []string)
 			return 130
 		}
 		result := CompareResult{File: entry.File}
+		var compareErr error
 		switch {
 		case entry.Skipped:
 			result.Skipped = string(entry.SkipReason)
@@ -128,7 +132,7 @@ func runCompareCommand(ctx context.Context, opts CompareOptions, files []string)
 			if err := verifySourceSnapshot(entry.File, entry.Source); err != nil {
 				result.Error = err.Error()
 			} else {
-				result = compareInput(ctx, opts, entry.Info)
+				result, compareErr = compareInput(ctx, opts, entry.Info)
 			}
 		}
 		if ctx.Err() != nil {
@@ -149,6 +153,9 @@ func runCompareCommand(ctx context.Context, opts CompareOptions, files []string)
 			}
 		} else {
 			printCompareHuman(os.Stdout, result)
+		}
+		if isCaptureSetupError(compareErr) {
+			return 1
 		}
 	}
 	return code

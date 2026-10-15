@@ -137,7 +137,7 @@ func TestDeferredHDRCannotBypassWithCRFOrCache(t *testing.T) {
 	if _, err := probeInspectedFile(context.Background(), opts.ProbeOptions, input.Info, input.Source); err == nil || !strings.Contains(err.Error(), "HDR") {
 		t.Fatal("unsafe probe/cache reuse", err)
 	}
-	comparison := compareInput(context.Background(), CompareOptions{ProbeOptions: opts.ProbeOptions, Profiles: []string{"legacy", "v1"}, Tunes: []string{"psnr"}}, input.Info)
+	comparison, _ := compareInput(context.Background(), CompareOptions{ProbeOptions: opts.ProbeOptions, Profiles: []string{"legacy", "v1"}, Tunes: []string{"psnr"}}, input.Info)
 	if !strings.Contains(comparison.Error, "HDR") || len(comparison.Results) != 0 {
 		t.Fatal("unsafe compare", comparison)
 	}

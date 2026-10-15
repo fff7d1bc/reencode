@@ -187,9 +187,17 @@ For each file, probing does this:
 On supported ffmpeg builds, timestamp validation observes the frames already
 being decoded for VMAF. It does not run separate source and sample timestamp
 decode passes. A small startup capability check verifies this backend,
-including unequal stream lengths. Older builds fall back to bounded ffprobe
-inspection with a diagnostic. Malformed captures and alignment failures are
-errors, not reasons to retry with weaker validation.
+including unequal stream lengths. Builds that explicitly lack a required capture
+feature fall back to bounded ffprobe inspection with a diagnostic. Other capture
+setup failures, including temporary-directory errors, malformed captures, and
+timeouts, stop the batch even with `--fallback-crf`. Ctrl-C stops with exit code
+130. Malformed captures and alignment failures during scoring are errors, not
+reasons to retry with weaker validation.
+
+Verbose output reports the selected timing policy. Probe and comparison JSON
+include `timing_policy` once backend selection succeeds, including on cache hits:
+`decoded-framecrc-v1` for in-process capture or `decoded-ffprobe-v1` for
+compatibility inspection. Skips and failures before selection omit the field.
 
 Bounded windows decode up to two extra seconds of source context to measure
 the last frame's coverage. That context is neither encoded nor scored. A
@@ -375,7 +383,8 @@ probing.
 ### `encode` Only
 
 - `--crf N`: bypass probing and encode with this CRF.
-- `--fallback-crf N`: use this CRF when probing fails.
+- `--fallback-crf N`: use this CRF when probing fails, except for capture setup
+  failures or interruption.
 - `--group-crf`: probe all inputs first and encode with one shared CRF.
 - `--overwrite`: allow replacing the unchanged output file that existed during
   planning, including an output included by a wildcard but skipped during

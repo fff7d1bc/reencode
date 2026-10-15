@@ -86,6 +86,7 @@ func TestVerifyQualityRejectsIncompleteAndCanceledSamples(t *testing.T) {
 }
 
 func TestVerifyQualityPublicationBarrier(t *testing.T) {
+	stubCaptureSupport(t)
 	oldRun, oldInspect, oldVerify, oldRuntime := executeFinalFFmpeg, inspectFinalMedia, verifyEncodedQuality, checkScoringRuntime
 	defer func() {
 		executeFinalFFmpeg, inspectFinalMedia, verifyEncodedQuality, checkScoringRuntime = oldRun, oldInspect, oldVerify, oldRuntime

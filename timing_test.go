@@ -7,6 +7,7 @@ import (
 )
 
 func TestProbeTimingIncludesFailedPreparation(t *testing.T) {
+	stubCaptureSupport(t)
 	old := checkScoringRuntime
 	defer func() { checkScoringRuntime = old }()
 	checkScoringRuntime = func(context.Context, ProbeOptions, VMAFModelInfo) (RuntimeVersions, error) {
@@ -29,7 +30,10 @@ func TestCompareTimingChargesPreparationOnce(t *testing.T) {
 		return ProbeResult{}, nil, nil, nil
 	}
 	info := MediaInfo{framesValidated: true, preparation: ProbeTiming{MetadataSeconds: 2, HDRSeconds: 3, TotalSeconds: 5}}
-	result := compareInput(context.Background(), CompareOptions{Profiles: []string{"legacy", "v1"}, Tunes: []string{"psnr"}}, info)
+	result, err := compareInput(context.Background(), CompareOptions{Profiles: []string{"legacy", "v1"}, Tunes: []string{"psnr"}}, info)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.Preparation != info.preparation || len(result.Results) != 2 {
 		t.Fatal(result)
 	}

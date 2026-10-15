@@ -70,6 +70,7 @@ type ProbeAttempt struct {
 }
 
 type ProbeResult struct {
+	TimingPolicy       string              `json:"timing_policy,omitempty"`
 	ReusedMeasurements int                 `json:"reused_measurements"`
 	CacheHit           bool                `json:"cache_hit"`
 	Timing             ProbeTiming         `json:"timing"`
@@ -178,11 +179,14 @@ func runProbeCommand(ctx context.Context, opts ProbeOptions, files []string) int
 				fmt.Fprintln(os.Stderr, err)
 				return 1
 			}
-			continue
+		} else {
+			printProbeHuman(result)
+			if opts.Verbose {
+				printSampleDiagnostics(result.Samples, opts.progressDisplay())
+			}
 		}
-		printProbeHuman(result)
-		if opts.Verbose {
-			printSampleDiagnostics(result.Samples, opts.progressDisplay())
+		if isCaptureSetupError(err) {
+			return 1
 		}
 	}
 	return exitCode
@@ -262,6 +266,7 @@ func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keep
 	started := time.Now()
 	var runtimeSeconds, cacheSeconds float64
 	defer func() {
+		result.TimingPolicy = opts.captureBackend
 		result.Timing.MetadataSeconds += info.preparation.MetadataSeconds
 		result.Timing.HDRSeconds += info.preparation.HDRSeconds
 		result.Timing.RuntimeSeconds += runtimeSeconds
@@ -277,9 +282,12 @@ func probeMediaFile(ctx context.Context, opts ProbeOptions, info MediaInfo, keep
 	file := info.Path
 	var err error
 	runtimeStart := time.Now()
-	opts.runtime, err = checkScoringRuntime(ctx, opts, resolveVMAFModel(opts, info))
+	opts.captureBackend, err = checkCaptureSupport(ctx, opts)
 	if err == nil {
-		opts.captureBackend, err = checkCaptureSupport(ctx, opts)
+		if opts.Verbose && !opts.JSON {
+			progress.Printf("%s: timing policy %s\n", displayPath(info.Path), opts.captureBackend)
+		}
+		opts.runtime, err = checkScoringRuntime(ctx, opts, resolveVMAFModel(opts, info))
 	}
 	runtimeSeconds = time.Since(runtimeStart).Seconds()
 	if err != nil {
@@ -351,13 +359,14 @@ type probeSession struct {
 func newProbeSession(opts ProbeOptions, info MediaInfo) (*probeSession, error) {
 	plan := planSamples(info, opts.Samples, opts.SampleDuration)
 	result := ProbeResult{
-		Tune:       opts.Tune,
-		Model:      resolveVMAFModel(opts, info),
-		Runtime:    opts.runtime,
-		File:       info.Path,
-		TargetVMAF: opts.TargetVMAF,
-		FloorVMAF:  opts.FloorVMAF,
-		SamplePlan: plan,
+		TimingPolicy: opts.captureBackend,
+		Tune:         opts.Tune,
+		Model:        resolveVMAFModel(opts, info),
+		Runtime:      opts.runtime,
+		File:         info.Path,
+		TargetVMAF:   opts.TargetVMAF,
+		FloorVMAF:    opts.FloorVMAF,
+		SamplePlan:   plan,
 	}
 	samples, err := createSamples(info, plan)
 	if err != nil {

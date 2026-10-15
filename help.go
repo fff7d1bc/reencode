@@ -95,7 +95,7 @@ Options:
   --crf float
       Bypass probing and encode with this CRF.
   --fallback-crf float
-      Use this CRF if probing fails.
+      Use this CRF if probing fails, except capture setup failures or interruption.
   --group-crf
       Probe all inputs first and encode with one shared CRF.
   --no-progress

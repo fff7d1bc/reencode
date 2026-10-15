@@ -186,6 +186,9 @@ func loadProbeCache(handle *probeCacheHandle, currentPath string) (ProbeResult, 
 	// the user passed today so progress, summaries, and JSON refer to it.
 	result.File = currentPath
 	result.CacheHit = true
+	// Older results omit this optional field. The validated envelope, not the
+	// stored display field, is authoritative for the backend used by this key.
+	result.TimingPolicy = handle.Options.TimingPolicy
 	// Cached durations describe a previous run and must not masquerade as
 	// timings for the current comparison.
 	result.Timing = ProbeTiming{}
