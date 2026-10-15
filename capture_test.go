@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -80,11 +82,66 @@ func TestCaptureCapabilityFallbackAndCancellation(t *testing.T) {
 	}
 }
 
+func TestCaptureCheckTempDirectoryAndCleanup(t *testing.T) {
+	old := ffmpegCommandContext
+	t.Cleanup(func() { ffmpegCommandContext = old })
+	for _, location := range []string{"default", "explicit"} {
+		for _, outcome := range []string{"success", "start-error", "malformed", "canceled"} {
+			t.Run(location+"/"+outcome, func(t *testing.T) {
+				opts := ProbeOptions{KeepTemp: true}
+				wantDir := os.TempDir()
+				if location == "explicit" {
+					opts.TempDir = filepath.Join(t.TempDir(), "new-directory")
+					wantDir = opts.TempDir
+				}
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				var path string
+				ffmpegCommandContext = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+					path = args[len(args)-1]
+					if filepath.Clean(filepath.Dir(path)) != filepath.Clean(wantDir) {
+						t.Fatalf("capture directory = %q, want %q", filepath.Dir(path), wantDir)
+					}
+					data := "#tb 0: 1/24\n#media_type 0: video\n#codec_id 0: wrapped_avframe\n" +
+						"#tb 1: 1/24\n#media_type 1: video\n#codec_id 1: wrapped_avframe\n" +
+						"0, 0, 0, 1, 424, ignored\n1, 0, 0, 1, 424, ignored\n" +
+						"0, 1, 1, 1, 424, ignored\n1, 1, 1, 1, 424, ignored\n0, 2, 2, 1, 424, ignored\n"
+					if outcome == "malformed" {
+						data = "invalid capture"
+					}
+					if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					if outcome == "canceled" {
+						cancel()
+					}
+					if outcome == "start-error" {
+						return exec.CommandContext(ctx, filepath.Join(t.TempDir(), "missing-ffmpeg"))
+					}
+					return inspectionHelperCommand(ctx, "frame=2\nprogress=end\n")
+				}
+				err := smokeFrameCapture(ctx, opts)
+				if path == "" {
+					t.Fatalf("capture check never reached ffmpeg: %v", err)
+				}
+				if (err == nil) != (outcome == "success") || outcome == "canceled" && !errors.Is(err, context.Canceled) {
+					t.Fatalf("unexpected result: %v", err)
+				}
+				if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("capture scratch survived %s with --keep-temp: %v", outcome, err)
+				}
+			})
+		}
+	}
+}
+
 func TestMediaIntegrationFrameCapture(t *testing.T) {
 	requireMediaIntegration(t)
 	dir := t.TempDir()
-	if err := smokeFrameCapture(context.Background(), ProbeOptions{TempDir: dir}); err != nil {
-		t.Fatal(err)
+	for _, tempDir := range []string{"", dir} {
+		if err := smokeFrameCapture(context.Background(), ProbeOptions{TempDir: tempDir}); err != nil {
+			t.Fatalf("capture check with temp dir %q: %v", tempDir, err)
+		}
 	}
 	for _, rate := range []string{"24", "24000/1001"} {
 		path := filepath.Join(dir, "capture.crc")

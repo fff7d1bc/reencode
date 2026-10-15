@@ -182,7 +182,13 @@ func selectCaptureBackend(ctx context.Context, opts ProbeOptions) (string, error
 }
 
 func smokeFrameCapture(ctx context.Context, opts ProbeOptions) error {
-	path, err := reserveTempPath(opts.TempDir, ".reencode-capture-check-*.crc")
+	dir := opts.TempDir
+	if dir == "" {
+		// Capability checks have no source directory. Match the scoring runtime
+		// check's system-temp default instead of passing an empty path to MkdirAll.
+		dir = os.TempDir()
+	}
+	path, err := reserveTempPath(dir, ".reencode-capture-check-*.crc")
 	if err != nil {
 		return err
 	}
